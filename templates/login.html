@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BRO Server - Login</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .login-box {
+            background: rgba(255,255,255,0.05);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 50px 40px;
+            width: 400px;
+            text-align: center;
+        }
+        .login-box h1 {
+            color: #00d4ff;
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        .login-box p {
+            color: rgba(255,255,255,0.6);
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+            text-align: right;
+        }
+        .form-group label {
+            color: rgba(255,255,255,0.8);
+            display: block;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255,255,255,0.08);
+            border: 1px solid rgba(255,255,255,0.15);
+            border-radius: 10px;
+            color: white;
+            font-size: 1em;
+            outline: none;
+            transition: border 0.3s;
+        }
+        .form-group input:focus {
+            border-color: #00d4ff;
+        }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #00d4ff, #0066ff);
+            border: none;
+            border-radius: 10px;
+            color: white;
+            font-size: 1.1em;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,212,255,0.3);
+        }
+        .error {
+            background: rgba(255,50,50,0.2);
+            border: 1px solid rgba(255,50,50,0.3);
+            color: #ff6b6b;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 0.9em;
+        }
+        .server-badge {
+            display: inline-block;
+            background: rgba(0,212,255,0.15);
+            color: #00d4ff;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75em;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <h1>BRO Server</h1>
+        <span class="server-badge">Control Panel</span>
+        <p>تسجيل دخول لوحة التحكم</p>
+
+        {% if error %}
+        <div class="error">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST">
+            <div class="form-group">
+                <label>اسم المستخدم</label>
+                <input type="text" name="username" autocomplete="username" required autofocus>
+            </div>
+            <div class="form-group">
+                <label>كلمة المرور</label>
+                <input type="password" name="password" autocomplete="current-password" required>
+            </div>
+            <button type="submit" class="btn">دخول</button>
+        </form>
+    </div>
+</body>
+</html>
