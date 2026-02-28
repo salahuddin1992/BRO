@@ -78,7 +78,6 @@ def main():
         "engineio", "engineio.async_drivers", "engineio.async_drivers.eventlet",
         "socketio",
         "dns", "dns.resolver", "dns.rdatatype", "dns.name",
-        "netifaces", "psutil", "zeroconf",
         "config",
         "server", "server.bro_server", "server.signaling",
         "network", "network.detector",
