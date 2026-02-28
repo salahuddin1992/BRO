@@ -1,59 +1,67 @@
 """
-Global configuration for Helen WiFi Server
+Helen WiFi - Configuration
 """
 import os
-import sys
 import secrets
 
+BASE_PATH = os.environ.get("BRO_BASE_PATH", os.path.dirname(os.path.abspath(__file__)))
+RUNTIME_PATH = os.environ.get("BRO_RUNTIME_PATH", os.path.dirname(os.path.abspath(__file__)))
 
-def _get_base_path():
-    """Base path: where code/templates/static are."""
-    return os.environ.get("BRO_BASE_PATH", os.path.dirname(os.path.abspath(__file__)))
-
-
-def _get_runtime_path():
-    """Runtime path: where writable files go (uploads, logs)."""
-    return os.environ.get("BRO_RUNTIME_PATH", os.path.dirname(os.path.abspath(__file__)))
-
-
-BASE_PATH = _get_base_path()
-RUNTIME_PATH = _get_runtime_path()
-
-# Server settings
+# Server
 SERVER_HOST = "0.0.0.0"
 SERVER_PORT = int(os.environ.get("BRO_PORT", 8400))
 SECRET_KEY = os.environ.get("BRO_SECRET", secrets.token_hex(32))
 
-# Control panel
+# Admin
 ADMIN_USERNAME = os.environ.get("BRO_ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("BRO_ADMIN_PASS", "admin123")
 
-# Mesh networking
-MESH_DISCOVERY_PORT = 8401
-MESH_BROADCAST_INTERVAL = 5  # seconds
+# Mesh
+MESH_PORT = 8401
 MESH_MAX_SERVERS = 100
-MESH_HEARTBEAT_TIMEOUT = 15  # seconds
 
-# File transfer - unlimited
-MAX_FILE_SIZE = 0  # 0 = unlimited
+# Files
+MAX_FILE_SIZE = 0  # unlimited
 UPLOAD_FOLDER = os.path.join(RUNTIME_PATH, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# WebRTC
+# WebRTC ICE Servers (STUN + TURN)
 ICE_SERVERS = [
     {"urls": "stun:stun.l.google.com:19302"},
     {"urls": "stun:stun1.l.google.com:19302"},
     {"urls": "stun:stun2.l.google.com:19302"},
     {"urls": "stun:stun3.l.google.com:19302"},
+    {"urls": "stun:stun4.l.google.com:19302"},
+    {
+        "urls": "turn:openrelay.metered.ca:80",
+        "username": "openrelayproject",
+        "credential": "openrelayproject",
+    },
+    {
+        "urls": "turn:openrelay.metered.ca:443",
+        "username": "openrelayproject",
+        "credential": "openrelayproject",
+    },
+    {
+        "urls": "turn:openrelay.metered.ca:443?transport=tcp",
+        "username": "openrelayproject",
+        "credential": "openrelayproject",
+    },
 ]
 
-# Network
-SUPPORTED_INTERFACES = [
-    "wifi", "ethernet", "lan", "wan", "wlan",
-    "dsl", "adsl", "vdsl", "fiber", "gpon", "epon",
-    "4g", "lte", "5g", "cellular",
-    "vpn", "tunnel", "bridge",
-]
+# Fiber Router Types
+FIBER_TYPES = {
+    "FTTH": "Fiber to the Home - 10 Gbps",
+    "GPON": "Gigabit PON - 2.5/1.25 Gbps",
+    "EPON": "Ethernet PON - 1.25 Gbps",
+    "XG-PON": "10-Gigabit PON - 10/2.5 Gbps",
+    "XGS-PON": "10G Symmetric PON - 10 Gbps",
+    "SFP": "Small Form-factor Pluggable - 1 Gbps",
+    "SFP+": "Enhanced SFP - 10 Gbps",
+    "ONT": "Optical Network Terminal",
+    "ONU": "Optical Network Unit",
+    "OLT": "Optical Line Terminal",
+}
 
 # Logging
 LOG_LEVEL = os.environ.get("BRO_LOG_LEVEL", "INFO")

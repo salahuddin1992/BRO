@@ -1,594 +1,259 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>هيلين WiFi - لوحة التحكم</title>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        :root {
-            --bg: #0a0a1a;
-            --card: rgba(255,255,255,0.04);
-            --border: rgba(255,255,255,0.08);
-            --text: #e0e0e0;
-            --text2: rgba(255,255,255,0.5);
-            --accent: #00d4ff;
-            --green: #00e676;
-            --orange: #ff9100;
-            --red: #ff5252;
-            --purple: #b388ff;
-        }
-        body {
-            font-family: 'Segoe UI', Tahoma, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>هيلين WiFi - لوحة التحكم</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root { --bg:#0a0a1a; --card:rgba(255,255,255,0.04); --border:rgba(255,255,255,0.08);
+        --text:#e0e0e0; --dim:rgba(255,255,255,0.4); --accent:#00d4ff; --green:#00e676;
+        --orange:#ff9100; --red:#ff5252; --purple:#b388ff; --fiber:#00ff88; }
+body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var(--text); }
 
-        /* Sidebar */
-        .sidebar {
-            position: fixed;
-            right: 0;
-            top: 0;
-            width: 240px;
-            height: 100vh;
-            background: rgba(255,255,255,0.02);
-            border-left: 1px solid var(--border);
-            padding: 20px;
-            z-index: 100;
-        }
-        .sidebar .logo {
-            text-align: center;
-            padding: 20px 0;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 20px;
-        }
-        .sidebar .logo h2 {
-            color: var(--accent);
-            font-size: 1.5em;
-        }
-        .sidebar .logo small {
-            color: var(--text2);
-            font-size: 0.75em;
-        }
-        .nav-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px 16px;
-            border-radius: 10px;
-            cursor: pointer;
-            color: var(--text2);
-            transition: all 0.2s;
-            margin-bottom: 4px;
-            font-size: 0.9em;
-        }
-        .nav-item:hover, .nav-item.active {
-            background: rgba(0,212,255,0.1);
-            color: var(--accent);
-        }
-        .nav-item .icon { font-size: 1.2em; width: 24px; text-align: center; }
+.sidebar {
+    position:fixed; right:0; top:0; width:220px; height:100vh;
+    background:rgba(255,255,255,0.02); border-left:1px solid var(--border); padding:16px; z-index:10;
+}
+.logo { text-align:center; padding:16px 0; border-bottom:1px solid var(--border); margin-bottom:16px; }
+.logo h2 { color:var(--accent); font-size:1.3em; }
+.logo small { color:var(--dim); font-size:.7em; }
+.nav { padding:10px 14px; border-radius:8px; cursor:pointer; color:var(--dim); font-size:.85em; margin-bottom:3px; }
+.nav:hover,.nav.on { background:rgba(0,212,255,0.1); color:var(--accent); }
 
-        /* Main */
-        .main {
-            margin-right: 240px;
-            padding: 30px;
-        }
+.main { margin-right:220px; padding:24px; }
+.hdr { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+.hdr h1 { font-size:1.3em; }
+.sid { background:rgba(0,212,255,0.1); color:var(--accent); padding:5px 14px; border-radius:16px; font-size:.78em; font-family:monospace; }
 
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-        }
-        .header h1 { font-size: 1.5em; }
-        .header .server-id {
-            background: rgba(0,212,255,0.1);
-            color: var(--accent);
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 0.8em;
-            font-family: monospace;
-        }
+.stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:14px; margin-bottom:24px; }
+.stat { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; }
+.stat .lbl { color:var(--dim); font-size:.75em; margin-bottom:6px; }
+.stat .val { font-size:1.6em; font-weight:bold; }
+.stat.a .val{color:var(--accent);} .stat.g .val{color:var(--green);} .stat.o .val{color:var(--orange);}
+.stat.p .val{color:var(--purple);} .stat.f .val{color:var(--fiber);}
 
-        /* Stats Cards */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 30px;
-        }
-        .stat-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 20px;
-        }
-        .stat-card .label {
-            color: var(--text2);
-            font-size: 0.8em;
-            margin-bottom: 8px;
-        }
-        .stat-card .value {
-            font-size: 1.8em;
-            font-weight: bold;
-        }
-        .stat-card .sub {
-            color: var(--text2);
-            font-size: 0.75em;
-            margin-top: 4px;
-        }
-        .stat-card.accent .value { color: var(--accent); }
-        .stat-card.green .value { color: var(--green); }
-        .stat-card.orange .value { color: var(--orange); }
-        .stat-card.purple .value { color: var(--purple); }
+.panel { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:16px; }
+.ptitle { font-size:1em; font-weight:600; margin-bottom:12px; }
+table { width:100%; border-collapse:collapse; }
+th,td { padding:8px 12px; text-align:right; border-bottom:1px solid var(--border); font-size:.82em; }
+th { color:var(--dim); font-weight:500; }
+.badge { display:inline-block; padding:2px 8px; border-radius:10px; font-size:.72em; }
+.badge-g { background:rgba(0,230,118,0.15); color:var(--green); }
+.badge-b { background:rgba(0,212,255,0.15); color:var(--accent); }
+.badge-f { background:rgba(0,255,136,0.15); color:var(--fiber); }
 
-        /* Panels */
-        .panel {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 24px;
-            margin-bottom: 20px;
-        }
-        .panel-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-        }
-        .panel-title {
-            font-size: 1.1em;
-            font-weight: 600;
-        }
+.sec { display:none; }
+.sec.on { display:block; }
 
-        /* Tables */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            padding: 10px 14px;
-            text-align: right;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.85em;
-        }
-        th {
-            color: var(--text2);
-            font-weight: 500;
-        }
-        .badge {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 12px;
-            font-size: 0.75em;
-        }
-        .badge-green { background: rgba(0,230,118,0.15); color: var(--green); }
-        .badge-blue { background: rgba(0,212,255,0.15); color: var(--accent); }
-        .badge-orange { background: rgba(255,145,0,0.15); color: var(--orange); }
+.log-box {
+    background:rgba(0,0,0,0.3); border-radius:6px; padding:12px; max-height:350px;
+    overflow-y:auto; font-family:monospace; font-size:.78em; direction:ltr; text-align:left;
+}
+.log-e { color:var(--red); } .log-w { color:var(--orange); } .log-i { color:var(--accent); }
 
-        /* Sections */
-        .section { display: none; }
-        .section.active { display: block; }
+.mform { display:flex; gap:8px; margin-bottom:14px; }
+.mform input { flex:1; padding:8px 12px; background:rgba(255,255,255,0.05); border:1px solid var(--border);
+               border-radius:6px; color:#fff; outline:none; font-size:.85em; }
+.btn { padding:8px 16px; background:linear-gradient(135deg,#00d4ff,#0066ff); border:none;
+       border-radius:6px; color:#fff; cursor:pointer; font-size:.85em; }
 
-        /* Log viewer */
-        .log-viewer {
-            background: rgba(0,0,0,0.3);
-            border-radius: 8px;
-            padding: 16px;
-            max-height: 400px;
-            overflow-y: auto;
-            font-family: 'Consolas', monospace;
-            font-size: 0.8em;
-            direction: ltr;
-            text-align: left;
-        }
-        .log-entry { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
-        .log-time { color: var(--text2); }
-        .log-info { color: var(--accent); }
-        .log-error { color: var(--red); }
-        .log-warning { color: var(--orange); }
-
-        /* Mesh connect form */
-        .mesh-form {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
-        .mesh-form input {
-            flex: 1;
-            padding: 10px 14px;
-            background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: white;
-            font-size: 0.9em;
-            outline: none;
-        }
-        .mesh-form input:focus { border-color: var(--accent); }
-        .btn-sm {
-            padding: 10px 20px;
-            background: linear-gradient(135deg, #00d4ff, #0066ff);
-            border: none;
-            border-radius: 8px;
-            color: white;
-            cursor: pointer;
-            font-size: 0.9em;
-        }
-        .btn-sm:hover { opacity: 0.9; }
-
-        .dot-online {
-            width: 8px; height: 8px;
-            background: var(--green);
-            border-radius: 50%;
-            display: inline-block;
-            margin-left: 6px;
-        }
-        .dot-offline {
-            width: 8px; height: 8px;
-            background: var(--red);
-            border-radius: 50%;
-            display: inline-block;
-            margin-left: 6px;
-        }
-
-        .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-
-        @media (max-width: 900px) {
-            .sidebar { width: 60px; padding: 10px; }
-            .sidebar .logo small, .nav-item span:not(.icon) { display: none; }
-            .main { margin-right: 60px; }
-            .two-col { grid-template-columns: 1fr; }
-        }
-    </style>
+.two { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media(max-width:900px){ .two{grid-template-columns:1fr;} .sidebar{width:60px;padding:8px;} .sidebar span{display:none;} .main{margin-right:60px;} }
+</style>
 </head>
 <body>
-    <!-- Sidebar -->
-    <div class="sidebar">
-        <div class="logo">
-            <h2>هيلين WiFi</h2>
-            <small>لوحة التحكم</small>
-        </div>
-        <div class="nav-item active" onclick="showSection('dashboard')">
-            <span class="icon">&#9632;</span><span>الرئيسية</span>
-        </div>
-        <div class="nav-item" onclick="showSection('clients')">
-            <span class="icon">&#9787;</span><span>العملاء</span>
-        </div>
-        <div class="nav-item" onclick="showSection('network')">
-            <span class="icon">&#9881;</span><span>الشبكة</span>
-        </div>
-        <div class="nav-item" onclick="showSection('mesh')">
-            <span class="icon">&#10070;</span><span>Mesh</span>
-        </div>
-        <div class="nav-item" onclick="showSection('messages')">
-            <span class="icon">&#9993;</span><span>الرسائل</span>
-        </div>
-        <div class="nav-item" onclick="showSection('files')">
-            <span class="icon">&#128193;</span><span>الملفات</span>
-        </div>
-        <div class="nav-item" onclick="showSection('logs')">
-            <span class="icon">&#128196;</span><span>السجلات</span>
-        </div>
-        <div class="nav-item" onclick="location.href='/client'" style="margin-top:20px;">
-            <span class="icon">&#10132;</span><span>واجهة العميل</span>
-        </div>
-        <div class="nav-item" onclick="location.href='/logout'" style="margin-top:auto;">
-            <span class="icon">&#10005;</span><span>خروج</span>
-        </div>
-    </div>
 
-    <!-- Main Content -->
-    <div class="main">
-        <div class="header">
-            <h1>لوحة التحكم</h1>
-            <span class="server-id" id="serverId">...</span>
+<div class="sidebar">
+    <div class="logo"><h2>هيلين WiFi</h2><small>لوحة التحكم</small></div>
+    <div class="nav on" onclick="show('dash')"><span>الرئيسية</span></div>
+    <div class="nav" onclick="show('clients')"><span>العملاء</span></div>
+    <div class="nav" onclick="show('net')"><span>الشبكة</span></div>
+    <div class="nav" onclick="show('mesh')"><span>Mesh</span></div>
+    <div class="nav" onclick="show('msgs')"><span>الرسائل</span></div>
+    <div class="nav" onclick="show('files')"><span>الملفات</span></div>
+    <div class="nav" onclick="show('fiber')"><span>الراوترات</span></div>
+    <div class="nav" onclick="show('logs')"><span>السجلات</span></div>
+    <div class="nav" onclick="location.href='/client'" style="margin-top:16px;"><span>العميل</span></div>
+    <div class="nav" onclick="location.href='/logout'"><span>خروج</span></div>
+</div>
+
+<div class="main">
+    <div class="hdr"><h1>لوحة التحكم</h1><span class="sid" id="sId">...</span></div>
+
+    <!-- Dashboard -->
+    <div class="sec on" id="s-dash">
+        <div class="stats">
+            <div class="stat a"><div class="lbl">العملاء</div><div class="val" id="vClients">0</div></div>
+            <div class="stat g"><div class="lbl">Mesh</div><div class="val" id="vMesh">0</div></div>
+            <div class="stat o"><div class="lbl">الرسائل</div><div class="val" id="vMsgs">0</div></div>
+            <div class="stat p"><div class="lbl">الملفات</div><div class="val" id="vFiles">0</div></div>
         </div>
-
-        <!-- Dashboard Section -->
-        <div class="section active" id="section-dashboard">
-            <div class="stats-grid">
-                <div class="stat-card accent">
-                    <div class="label">العملاء المتصلون</div>
-                    <div class="value" id="stat-clients">0</div>
-                    <div class="sub">متصلون الآن</div>
-                </div>
-                <div class="stat-card green">
-                    <div class="label">خوادم Mesh</div>
-                    <div class="value" id="stat-mesh">0</div>
-                    <div class="sub">خوادم متصلة</div>
-                </div>
-                <div class="stat-card orange">
-                    <div class="label">الرسائل</div>
-                    <div class="value" id="stat-messages">0</div>
-                    <div class="sub">اجمالي الرسائل</div>
-                </div>
-                <div class="stat-card purple">
-                    <div class="label">الملفات</div>
-                    <div class="value" id="stat-files">0</div>
-                    <div class="sub">ملفات مرسلة</div>
-                </div>
-            </div>
-
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="label">وقت التشغيل</div>
-                    <div class="value" id="stat-uptime" style="font-size:1.2em;">--</div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">IP المحلي</div>
-                    <div class="value" id="stat-ip" style="font-size:1.1em; direction:ltr;">--</div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">المنفذ</div>
-                    <div class="value" id="stat-port" style="font-size:1.2em;">--</div>
-                </div>
-                <div class="stat-card">
-                    <div class="label">الغرف النشطة</div>
-                    <div class="value" id="stat-rooms">0</div>
-                </div>
-            </div>
-
-            <div class="two-col">
-                <div class="panel">
-                    <div class="panel-header">
-                        <span class="panel-title">آخر العملاء</span>
-                    </div>
-                    <table>
-                        <thead><tr><th>المستخدم</th><th>IP</th><th>الحالة</th></tr></thead>
-                        <tbody id="recent-clients"></tbody>
-                    </table>
-                </div>
-                <div class="panel">
-                    <div class="panel-header">
-                        <span class="panel-title">واجهات الشبكة</span>
-                    </div>
-                    <table>
-                        <thead><tr><th>الواجهة</th><th>IP</th><th>النوع</th></tr></thead>
-                        <tbody id="network-brief"></tbody>
-                    </table>
-                </div>
-            </div>
+        <div class="stats">
+            <div class="stat"><div class="lbl">التشغيل</div><div class="val" id="vUp" style="font-size:1.1em">--</div></div>
+            <div class="stat"><div class="lbl">IP</div><div class="val" id="vIp" style="font-size:1em;direction:ltr">--</div></div>
+            <div class="stat"><div class="lbl">المنفذ</div><div class="val" id="vPort">--</div></div>
+            <div class="stat" id="fiberStat" style="display:none"><div class="lbl">فايبر</div><div class="val" style="color:var(--fiber)">&#10003;</div></div>
         </div>
-
-        <!-- Clients Section -->
-        <div class="section" id="section-clients">
-            <div class="panel">
-                <div class="panel-header">
-                    <span class="panel-title">العملاء المتصلون</span>
-                    <span class="badge badge-green" id="client-count-badge">0</span>
-                </div>
-                <table>
-                    <thead><tr><th>المعرف</th><th>المستخدم</th><th>IP</th><th>وقت الاتصال</th><th>الحالة</th></tr></thead>
-                    <tbody id="clients-table"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Network Section -->
-        <div class="section" id="section-network">
-            <div class="panel">
-                <div class="panel-header">
-                    <span class="panel-title">واجهات الشبكة المكتشفة</span>
-                    <button class="btn-sm" onclick="refreshNetwork()">تحديث</button>
-                </div>
-                <table>
-                    <thead><tr><th>الاسم</th><th>IP</th><th>Netmask</th><th>MAC</th><th>النوع</th><th>Gateway</th><th>الحالة</th></tr></thead>
-                    <tbody id="network-table"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Mesh Section -->
-        <div class="section" id="section-mesh">
-            <div class="panel">
-                <div class="panel-header">
-                    <span class="panel-title">شبكة Mesh</span>
-                </div>
-                <div class="mesh-form">
-                    <input type="text" id="mesh-host" placeholder="IP الخادم">
-                    <input type="number" id="mesh-port" placeholder="المنفذ" value="8401" style="max-width:100px;">
-                    <button class="btn-sm" onclick="connectMesh()">اتصال</button>
-                </div>
-                <table>
-                    <thead><tr><th>معرف الخادم</th><th>IP</th><th>المنفذ</th><th>آخر ظهور</th><th>الأقران</th></tr></thead>
-                    <tbody id="mesh-table"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Messages Section -->
-        <div class="section" id="section-messages">
-            <div class="panel">
-                <div class="panel-header">
-                    <span class="panel-title">سجل الرسائل</span>
-                </div>
-                <table>
-                    <thead><tr><th>المرسل</th><th>الرسالة</th><th>الوقت</th></tr></thead>
-                    <tbody id="messages-table"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Files Section -->
-        <div class="section" id="section-files">
-            <div class="panel">
-                <div class="panel-header">
-                    <span class="panel-title">الملفات المشاركة</span>
-                </div>
-                <table>
-                    <thead><tr><th>اسم الملف</th><th>الحجم</th><th>رافع الملف</th><th>التاريخ</th><th>تحميل</th></tr></thead>
-                    <tbody id="files-table"></tbody>
-                </table>
-            </div>
-        </div>
-
-        <!-- Logs Section -->
-        <div class="section" id="section-logs">
-            <div class="panel">
-                <div class="panel-header">
-                    <span class="panel-title">سجلات السيرفر</span>
-                    <button class="btn-sm" onclick="refreshData()">تحديث</button>
-                </div>
-                <div class="log-viewer" id="log-viewer"></div>
-            </div>
+        <div class="two">
+            <div class="panel"><div class="ptitle">آخر العملاء</div><table><thead><tr><th>المستخدم</th><th>IP</th></tr></thead><tbody id="tRC"></tbody></table></div>
+            <div class="panel"><div class="ptitle">الشبكة</div><table><thead><tr><th>الواجهة</th><th>IP</th><th>النوع</th></tr></thead><tbody id="tRN"></tbody></table></div>
         </div>
     </div>
 
-    <script>
-        let currentSection = 'dashboard';
+    <!-- Clients -->
+    <div class="sec" id="s-clients">
+        <div class="panel"><div class="ptitle">العملاء المتصلون</div>
+        <table><thead><tr><th>المعرف</th><th>المستخدم</th><th>IP</th><th>الوقت</th></tr></thead><tbody id="tCl"></tbody></table></div>
+    </div>
 
-        function showSection(name) {
-            document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-            document.getElementById('section-' + name).classList.add('active');
-            document.querySelectorAll('.nav-item')[
-                ['dashboard','clients','network','mesh','messages','files','logs'].indexOf(name)
-            ].classList.add('active');
-            currentSection = name;
+    <!-- Network -->
+    <div class="sec" id="s-net">
+        <div class="panel"><div class="ptitle">واجهات الشبكة</div>
+        <table><thead><tr><th>الاسم</th><th>IP</th><th>Netmask</th><th>النوع</th><th>فايبر</th><th>الحالة</th></tr></thead><tbody id="tNet"></tbody></table></div>
+    </div>
+
+    <!-- Mesh -->
+    <div class="sec" id="s-mesh">
+        <div class="panel"><div class="ptitle">شبكة Mesh</div>
+        <div class="mform">
+            <input id="mHost" placeholder="IP الخادم">
+            <input id="mPort" placeholder="المنفذ" value="8401" style="max-width:90px">
+            <button class="btn" onclick="meshConnect()">اتصال</button>
+        </div>
+        <table><thead><tr><th>المعرف</th><th>IP</th><th>المنفذ</th><th>آخر ظهور</th></tr></thead><tbody id="tMesh"></tbody></table></div>
+    </div>
+
+    <!-- Messages -->
+    <div class="sec" id="s-msgs">
+        <div class="panel"><div class="ptitle">الرسائل</div>
+        <table><thead><tr><th>المرسل</th><th>الرسالة</th><th>الوقت</th></tr></thead><tbody id="tMsg"></tbody></table></div>
+    </div>
+
+    <!-- Files -->
+    <div class="sec" id="s-files">
+        <div class="panel"><div class="ptitle">الملفات</div>
+        <table><thead><tr><th>الملف</th><th>الحجم</th><th>الرافع</th><th>تحميل</th></tr></thead><tbody id="tFl"></tbody></table></div>
+    </div>
+
+    <!-- Fiber Routers -->
+    <div class="sec" id="s-fiber">
+        <div class="panel"><div class="ptitle">الراوترات والكوابل المدعومة</div>
+        <p style="color:var(--dim);margin-bottom:12px;font-size:.85em;">يعمل على جميع أنواع الراوترات</p>
+        <table><thead><tr><th>النوع</th><th>الوصف</th></tr></thead><tbody id="tFiber"></tbody></table></div>
+    </div>
+
+    <!-- Logs -->
+    <div class="sec" id="s-logs">
+        <div class="panel"><div class="ptitle">السجلات</div><div class="log-box" id="logBox"></div></div>
+    </div>
+</div>
+
+<script>
+let cur='dash';
+function show(name){
+    document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
+    document.querySelectorAll('.nav').forEach(n=>n.classList.remove('on'));
+    document.getElementById('s-'+name).classList.add('on');
+    let navs = document.querySelectorAll('.nav');
+    let map = ['dash','clients','net','mesh','msgs','files','fiber','logs'];
+    let idx = map.indexOf(name);
+    if(idx>=0 && navs[idx]) navs[idx].classList.add('on');
+    cur=name;
+}
+
+function esc(s){ let d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function fmtUp(s){ return Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m '+(s%60)+'s'; }
+function fmtSize(b){ if(b<1024)return b+' B'; if(b<1048576)return(b/1024).toFixed(1)+' KB'; return(b/1048576).toFixed(1)+' MB'; }
+function fmtTime(iso){ return iso ? new Date(iso+'Z').toLocaleTimeString('ar-SA') : '--'; }
+
+async function refresh(){
+    try {
+        let r = await fetch('/api/admin/stats');
+        let d = await r.json();
+
+        document.getElementById('sId').textContent = d.server_id;
+        document.getElementById('vClients').textContent = d.clients_count;
+        document.getElementById('vMesh').textContent = d.mesh.peer_count;
+        document.getElementById('vMsgs').textContent = d.messages_count;
+        document.getElementById('vFiles').textContent = d.files_count;
+        document.getElementById('vUp').textContent = fmtUp(d.uptime);
+        document.getElementById('vIp').textContent = d.host_ip;
+        document.getElementById('vPort').textContent = d.port;
+        if(d.is_fiber) document.getElementById('fiberStat').style.display='block';
+
+        // Recent clients
+        document.getElementById('tRC').innerHTML = d.clients.slice(-5).map(c=>
+            `<tr><td>${esc(c.username||c.sid.slice(0,8))}</td><td style="direction:ltr">${c.ip||'--'}</td></tr>`).join('');
+
+        // Network brief
+        document.getElementById('tRN').innerHTML = d.network.map(n=>
+            `<tr><td>${esc(n.name)}</td><td style="direction:ltr">${n.ip}</td>
+            <td><span class="badge ${n.is_fiber?'badge-f':'badge-b'}">${esc(n.type)}</span></td></tr>`).join('');
+
+        // Full clients
+        document.getElementById('tCl').innerHTML = d.clients.map(c=>
+            `<tr><td style="direction:ltr;font-family:monospace;font-size:.75em">${c.sid}</td>
+            <td>${esc(c.username||'--')}</td><td style="direction:ltr">${c.ip||'--'}</td>
+            <td>${fmtTime(c.connected_at)}</td></tr>`).join('');
+
+        // Network full
+        document.getElementById('tNet').innerHTML = d.network.map(n=>
+            `<tr><td>${esc(n.name)}</td><td style="direction:ltr">${n.ip}</td>
+            <td style="direction:ltr">${n.netmask||'--'}</td>
+            <td><span class="badge ${n.is_fiber?'badge-f':'badge-b'}">${esc(n.type)}</span></td>
+            <td>${n.is_fiber?'<span class="badge badge-f">فايبر</span>':'--'}</td>
+            <td><span class="badge badge-g">فعال</span></td></tr>`).join('');
+
+        // Messages
+        document.getElementById('tMsg').innerHTML = (d.messages||[]).slice().reverse().map(m=>
+            `<tr><td>${esc(m.sender)}</td><td>${esc(m.text)}</td><td>${fmtTime(m.timestamp)}</td></tr>`).join('')
+            || '<tr><td colspan="3" style="text-align:center;color:var(--dim)">لا توجد رسائل</td></tr>';
+
+        // Files
+        document.getElementById('tFl').innerHTML = (d.files||[]).map(f=>
+            `<tr><td>${esc(f.name)}</td><td>${fmtSize(f.size)}</td><td>${esc(f.uploaded_by)}</td>
+            <td><a href="/api/download/${encodeURIComponent(f.saved_as)}" style="color:var(--accent)">تحميل</a></td></tr>`).join('')
+            || '<tr><td colspan="4" style="text-align:center;color:var(--dim)">لا توجد ملفات</td></tr>';
+
+        // Mesh
+        let peers = d.mesh.peers||[];
+        if(peers.length){
+            document.getElementById('tMesh').innerHTML = peers.map(p=>
+                `<tr><td style="direction:ltr;font-family:monospace;font-size:.75em">${esc(p.server_id||'')}</td>
+                <td style="direction:ltr">${esc(p.host||'--')}</td>
+                <td>${p.port||'--'}</td>
+                <td>${fmtTime(p.last_seen)}</td></tr>`).join('');
+        } else {
+            document.getElementById('tMesh').innerHTML =
+                '<tr><td colspan="4" style="text-align:center;color:var(--dim)">لا توجد خوادم</td></tr>';
         }
 
-        function formatUptime(seconds) {
-            const h = Math.floor(seconds / 3600);
-            const m = Math.floor((seconds % 3600) / 60);
-            const s = seconds % 60;
-            return `${h}h ${m}m ${s}s`;
+        // Fiber types
+        if(d.fiber_types){
+            document.getElementById('tFiber').innerHTML = Object.entries(d.fiber_types).map(([k,v])=>
+                `<tr><td><span class="badge badge-f">${k}</span></td><td>${esc(v)}</td></tr>`).join('');
         }
 
-        function formatSize(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-            return (bytes / 1048576).toFixed(1) + ' MB';
-        }
+        // Logs
+        document.getElementById('logBox').innerHTML = d.logs.map(l=>{
+            let cls = l.level==='error'?'log-e':l.level==='warning'?'log-w':'log-i';
+            return `<div><span style="color:var(--dim)">${l.time}</span> <span class="${cls}">[${l.level.toUpperCase()}]</span> ${esc(l.message)}</div>`;
+        }).join('');
 
-        function formatTime(iso) {
-            if (!iso) return '--';
-            const d = new Date(iso + 'Z');
-            return d.toLocaleTimeString('ar-SA');
-        }
+    } catch(e){ console.error(e); }
+}
 
-        async function refreshData() {
-            try {
-                const res = await fetch('/api/admin/stats');
-                const data = await res.json();
+async function meshConnect(){
+    let host = document.getElementById('mHost').value.trim();
+    let port = document.getElementById('mPort').value.trim();
+    if(!host) return;
+    await fetch('/api/admin/mesh/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host,port})});
+    refresh();
+}
 
-                document.getElementById('serverId').textContent = 'Server: ' + data.server_id;
-                document.getElementById('stat-clients').textContent = data.connected_clients;
-                document.getElementById('stat-mesh').textContent = data.mesh.peer_count;
-                document.getElementById('stat-messages').textContent = data.total_messages;
-                document.getElementById('stat-files').textContent = data.total_files;
-                document.getElementById('stat-uptime').textContent = formatUptime(data.uptime);
-                document.getElementById('stat-ip').textContent = data.host_ip;
-                document.getElementById('stat-port').textContent = data.port;
-                document.getElementById('stat-rooms').textContent = data.signaling.active_rooms;
-                document.getElementById('client-count-badge').textContent = data.connected_clients;
-
-                // Recent clients
-                const rc = document.getElementById('recent-clients');
-                rc.innerHTML = data.clients.slice(-5).map(c => `
-                    <tr>
-                        <td>${c.username || c.sid.slice(0,8)}</td>
-                        <td style="direction:ltr">${c.ip || '--'}</td>
-                        <td><span class="dot-online"></span> متصل</td>
-                    </tr>
-                `).join('');
-
-                // Network brief
-                const nb = document.getElementById('network-brief');
-                nb.innerHTML = data.network.map(n => `
-                    <tr>
-                        <td>${n.name}</td>
-                        <td style="direction:ltr">${n.ip}</td>
-                        <td><span class="badge badge-blue">${n.type}</span></td>
-                    </tr>
-                `).join('');
-
-                // Full clients table
-                const ct = document.getElementById('clients-table');
-                ct.innerHTML = data.clients.map(c => `
-                    <tr>
-                        <td style="direction:ltr; font-family:monospace; font-size:0.8em;">${c.sid}</td>
-                        <td>${c.username || '--'}</td>
-                        <td style="direction:ltr">${c.ip || '--'}</td>
-                        <td>${formatTime(c.connected_at)}</td>
-                        <td><span class="badge badge-green">متصل</span></td>
-                    </tr>
-                `).join('');
-
-                // Network table
-                const nt = document.getElementById('network-table');
-                nt.innerHTML = data.network.map(n => `
-                    <tr>
-                        <td>${n.name}</td>
-                        <td style="direction:ltr">${n.ip}</td>
-                        <td style="direction:ltr">${n.netmask}</td>
-                        <td style="direction:ltr; font-size:0.8em;">${n.mac || '--'}</td>
-                        <td><span class="badge badge-blue">${n.type}</span></td>
-                        <td style="direction:ltr">${n.gateway || '--'}</td>
-                        <td>${n.active ? '<span class="badge badge-green">فعال</span>' : '<span class="badge badge-orange">غير فعال</span>'}</td>
-                    </tr>
-                `).join('');
-
-                // Mesh table
-                const mt = document.getElementById('mesh-table');
-                const peers = data.mesh.peers || [];
-                if (peers.length === 0) {
-                    mt.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text2);">لا توجد خوادم متصلة</td></tr>';
-                }
-
-                // Messages table
-                const msgT = document.getElementById('messages-table');
-                const msgs = data.logs.filter(l => l.message.includes('message') || l.message.includes('chat'));
-                // Use actual messages endpoint
-                const msgRes = await fetch('/api/admin/messages');
-                const msgData = await msgRes.json();
-                msgT.innerHTML = (msgData.messages || []).slice(-50).reverse().map(m => `
-                    <tr>
-                        <td>${m.sender}</td>
-                        <td>${m.text}</td>
-                        <td>${formatTime(m.timestamp)}</td>
-                    </tr>
-                `).join('');
-
-                // Logs
-                const lv = document.getElementById('log-viewer');
-                lv.innerHTML = data.logs.map(l => {
-                    const cls = l.level === 'error' ? 'log-error' : l.level === 'warning' ? 'log-warning' : 'log-info';
-                    return `<div class="log-entry"><span class="log-time">${l.time}</span> <span class="${cls}">[${l.level.toUpperCase()}]</span> ${l.message}</div>`;
-                }).join('');
-                lv.scrollTop = lv.scrollHeight;
-
-            } catch (e) {
-                console.error('Failed to fetch stats:', e);
-            }
-        }
-
-        async function refreshNetwork() {
-            const res = await fetch('/api/admin/network');
-            refreshData();
-        }
-
-        async function connectMesh() {
-            const host = document.getElementById('mesh-host').value.trim();
-            const port = document.getElementById('mesh-port').value.trim();
-            if (!host) return;
-            try {
-                const res = await fetch('/api/admin/mesh/connect', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({host, port})
-                });
-                const data = await res.json();
-                alert(data.message);
-                refreshData();
-            } catch (e) {
-                alert('فشل الاتصال');
-            }
-        }
-
-        // Auto refresh
-        refreshData();
-        setInterval(refreshData, 3000);
-    </script>
+refresh();
+setInterval(refresh, 3000);
+</script>
 </body>
 </html>

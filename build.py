@@ -1,138 +1,73 @@
 #!/usr/bin/env python3
 """
-Helen WiFi - Build to EXE
-=========================
-Just run this file and it automatically builds the EXE.
-No questions, no menus - one click.
-
+Helen WiFi - Build EXE (one click)
     python build.py
-
-The EXE will be in the 'dist' folder.
 """
-import subprocess
-import sys
-import os
-import shutil
+import subprocess, sys, os, shutil
 
-PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
-DIST_DIR = os.path.join(PROJECT_DIR, "dist")
-BUILD_DIR = os.path.join(PROJECT_DIR, "build")
-SEP = os.pathsep  # ; on Windows, : on Linux/Mac
-
-EXE_NAME = "HelenWiFi"
-
+DIR = os.path.dirname(os.path.abspath(__file__))
+SEP = os.pathsep
 
 def main():
-    print()
-    print("  +--------------------------------------------+")
-    print("  |        هيلين WiFi - بناء البرنامج          |")
-    print("  |          Helen WiFi - EXE Builder           |")
-    print("  +--------------------------------------------+")
-    print()
+    print("\n  Helen WiFi - Build\n")
 
-    # Step 1: Install dependencies
-    print("[1/3] تثبيت المتطلبات...")
-    req_file = os.path.join(PROJECT_DIR, "requirements.txt")
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "-r", req_file, "-q"],
-        stdout=subprocess.DEVNULL
-    )
-    subprocess.check_call(
-        [sys.executable, "-m", "pip", "install", "pyinstaller>=6.3.0", "-q"],
-        stdout=subprocess.DEVNULL
-    )
-    print("    [OK] تم التثبيت")
+    # 1. Install deps
+    print("[1/3] Installing...")
+    subprocess.run([sys.executable, "-m", "pip", "install", "-r", os.path.join(DIR, "requirements.txt"), "-q"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller>=6.3.0", "-q"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Step 2: Clean
-    print("[2/3] تنظيف البناء السابق...")
-    for d in [DIST_DIR, BUILD_DIR]:
-        if os.path.exists(d):
-            shutil.rmtree(d)
-    spec_file = os.path.join(PROJECT_DIR, f"{EXE_NAME}.spec")
-    if os.path.exists(spec_file):
-        os.remove(spec_file)
-    print("    [OK] تم التنظيف")
+    # 2. Clean
+    print("[2/3] Cleaning...")
+    for d in ["dist", "build"]:
+        p = os.path.join(DIR, d)
+        if os.path.exists(p):
+            shutil.rmtree(p)
+    spec = os.path.join(DIR, "HelenWiFi.spec")
+    if os.path.exists(spec):
+        os.remove(spec)
 
-    # Step 3: Build
-    print("[3/3] بناء ملف EXE...")
-    print()
-
-    # Collect all data folders
-    data_args = []
+    # 3. Build
+    print("[3/3] Building...")
+    data = []
     for folder in ["templates", "static", "server", "network", "mesh", "utils"]:
-        folder_path = os.path.join(PROJECT_DIR, folder)
-        if os.path.exists(folder_path):
-            data_args.extend(["--add-data", f"{folder_path}{SEP}{folder}"])
+        p = os.path.join(DIR, folder)
+        if os.path.exists(p):
+            data += ["--add-data", f"{p}{SEP}{folder}"]
+    cfg = os.path.join(DIR, "config.py")
+    if os.path.exists(cfg):
+        data += ["--add-data", f"{cfg}{SEP}."]
 
-    # Config file
-    config_path = os.path.join(PROJECT_DIR, "config.py")
-    if os.path.exists(config_path):
-        data_args.extend(["--add-data", f"{config_path}{SEP}."])
-
-    # All hidden imports
-    hidden = [
-        "eventlet", "eventlet.hubs", "eventlet.hubs.epolls",
-        "eventlet.hubs.kqueue", "eventlet.hubs.selects", "eventlet.hubs.poll",
-        "eventlet.green", "eventlet.green.ssl",
-        "flask", "flask.json", "flask_socketio", "flask_cors",
-        "engineio", "engineio.async_drivers", "engineio.async_drivers.eventlet",
-        "socketio",
-        "dns", "dns.resolver", "dns.rdatatype", "dns.name",
-        "config",
-        "server", "server.bro_server", "server.signaling",
-        "network", "network.detector",
-        "mesh", "mesh.mesh_node",
-    ]
-    hidden_args = []
+    hidden = ["eventlet", "eventlet.hubs", "eventlet.hubs.epolls", "eventlet.hubs.selects",
+              "flask", "flask_socketio", "flask_cors", "engineio", "engineio.async_drivers.eventlet",
+              "socketio", "dns", "dns.resolver", "config",
+              "server", "server.bro_server", "server.signaling",
+              "network", "network.detector", "mesh", "mesh.mesh_node"]
+    h_args = []
     for h in hidden:
-        hidden_args.extend(["--hidden-import", h])
+        h_args += ["--hidden-import", h]
 
-    cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--name", EXE_NAME,
-        "--onefile",
-        "--noconsole",
-        *data_args,
-        *hidden_args,
-        "--noconfirm",
-        os.path.join(PROJECT_DIR, "run.py"),
-    ]
+    cmd = [sys.executable, "-m", "PyInstaller", "--name", "HelenWiFi", "--onefile",
+           *data, *h_args, "--noconfirm"]
+    if sys.platform == "win32":
+        cmd.append("--noconsole")
+    cmd.append(os.path.join(DIR, "run.py"))
 
-    result = subprocess.run(cmd, cwd=PROJECT_DIR)
-
-    if result.returncode != 0:
-        print()
-        print("  [ERROR] فشل البناء!")
-        input("  اضغط Enter للخروج...")
+    r = subprocess.run(cmd, cwd=DIR)
+    if r.returncode != 0:
+        print("\n  BUILD FAILED!")
         sys.exit(1)
 
-    # Create uploads folder
-    os.makedirs(os.path.join(DIST_DIR, "uploads"), exist_ok=True)
+    os.makedirs(os.path.join(DIR, "dist", "uploads"), exist_ok=True)
 
-    # Done
-    exe_suffix = ".exe" if sys.platform == "win32" else ""
-    exe_path = os.path.join(DIST_DIR, f"{EXE_NAME}{exe_suffix}")
-    size_mb = 0
-    if os.path.exists(exe_path):
-        size_mb = os.path.getsize(exe_path) / (1024 * 1024)
+    ext = ".exe" if sys.platform == "win32" else ""
+    exe = os.path.join(DIR, "dist", f"HelenWiFi{ext}")
+    size = os.path.getsize(exe) / 1048576 if os.path.exists(exe) else 0
 
-    print()
-    print("  +--------------------------------------------+")
-    print("  |              تم البناء بنجاح!              |")
-    print("  |           BUILD SUCCESSFUL!                 |")
-    print("  +--------------------------------------------+")
-    print(f"  |  الملف: dist/{EXE_NAME}{exe_suffix}")
-    print(f"  |  الحجم: {size_mb:.1f} MB")
-    print("  |")
-    print("  |  شغّل الملف وراح يفتح المتصفح تلقائياً")
-    print("  |  العميل: http://localhost:8400/client")
-    print("  |  الادمن: http://localhost:8400/admin")
-    print("  +--------------------------------------------+")
-    print()
-
-    if sys.platform == "win32":
-        input("  اضغط Enter للخروج...")
-
+    print(f"\n  BUILD OK! dist/HelenWiFi{ext} ({size:.1f} MB)")
+    print(f"  Client: http://localhost:8400/client")
+    print(f"  Admin:  http://localhost:8400/admin\n")
 
 if __name__ == "__main__":
     main()
