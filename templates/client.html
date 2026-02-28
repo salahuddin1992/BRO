@@ -644,7 +644,7 @@
                 return;
             }
             const constraints = type === 'video'
-                ? { audio: true, video: true }
+                ? { audio: true, video: { width: { ideal: 4096 }, height: { ideal: 2160 }, frameRate: { ideal: 60 } } }
                 : { audio: true, video: false };
             try {
                 localStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -668,7 +668,7 @@
             document.getElementById('callOverlay').classList.remove('active');
             const type = incomingCallData.call_type;
             const constraints = type === 'video'
-                ? { audio: true, video: true }
+                ? { audio: true, video: { width: { ideal: 4096 }, height: { ideal: 2160 }, frameRate: { ideal: 60 } } }
                 : { audio: true, video: false };
             try {
                 localStream = await navigator.mediaDevices.getUserMedia(constraints);

@@ -19,8 +19,8 @@ MESH_BROADCAST_INTERVAL = 5  # seconds
 MESH_MAX_SERVERS = 100
 MESH_HEARTBEAT_TIMEOUT = 15  # seconds
 
-# File transfer
-MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
+# File transfer - unlimited
+MAX_FILE_SIZE = 0  # 0 = unlimited
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
