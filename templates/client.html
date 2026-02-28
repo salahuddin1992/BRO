@@ -33,6 +33,7 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 .avatar { width:32px; height:32px; background:linear-gradient(135deg,#00d4ff,#0066ff); border-radius:50%;
           display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:.85em; }
 .uname { font-size:.85em; }
+.rbadge { font-size:.58em; background:rgba(0,212,255,0.15); color:var(--accent); padding:1px 5px; border-radius:6px; margin-right:4px; vertical-align:middle; }
 
 /* Center */
 .center { display:flex; flex-direction:column; }
@@ -272,7 +273,7 @@ function renderUsers(users){
     document.getElementById('userList').innerHTML = users.filter(u=>u.username!==me).map(u=>
         `<div class="user ${selUser===u.sid?'sel':''}" onclick="pickUser('${u.sid}','${esc(u.username)}')">
             <div class="avatar">${u.username[0].toUpperCase()}</div>
-            <div class="uname">${esc(u.username)}</div>
+            <div class="uname">${esc(u.username)}${u.remote?'<span class="rbadge">mesh</span>':''}</div>
         </div>`
     ).join('');
 }

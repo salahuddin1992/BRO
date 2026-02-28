@@ -88,6 +88,7 @@ th { color:var(--dim); font-weight:500; }
             <div class="stat g"><div class="lbl">Mesh</div><div class="val" id="vMesh">0</div></div>
             <div class="stat o"><div class="lbl">الرسائل</div><div class="val" id="vMsgs">0</div></div>
             <div class="stat p"><div class="lbl">الملفات</div><div class="val" id="vFiles">0</div></div>
+            <div class="stat f"><div class="lbl">مستخدمون بعيدون</div><div class="val" id="vRemote">0</div></div>
         </div>
         <div class="stats">
             <div class="stat"><div class="lbl">التشغيل</div><div class="val" id="vUp" style="font-size:1.1em">--</div></div>
@@ -118,10 +119,12 @@ th { color:var(--dim); font-weight:500; }
         <div class="panel"><div class="ptitle">شبكة Mesh</div>
         <div class="mform">
             <input id="mHost" placeholder="IP الخادم">
-            <input id="mPort" placeholder="المنفذ" value="8401" style="max-width:90px">
+            <input id="mPort" placeholder="المنفذ" value="8400" style="max-width:90px">
             <button class="btn" onclick="meshConnect()">اتصال</button>
         </div>
-        <table><thead><tr><th>المعرف</th><th>IP</th><th>المنفذ</th><th>آخر ظهور</th></tr></thead><tbody id="tMesh"></tbody></table></div>
+        <table><thead><tr><th>المعرف</th><th>IP</th><th>المنفذ</th><th>المستخدمون</th><th>آخر ظهور</th></tr></thead><tbody id="tMesh"></tbody></table>
+        <div class="ptitle" style="margin-top:16px">المستخدمون البعيدون</div>
+        <table><thead><tr><th>المستخدم</th><th>السيرفر</th></tr></thead><tbody id="tRemUsers"></tbody></table></div>
     </div>
 
     <!-- Messages -->
@@ -176,6 +179,7 @@ async function refresh(){
         document.getElementById('vClients').textContent = d.clients_count;
         document.getElementById('vMesh').textContent = d.mesh.peer_count;
         document.getElementById('vMsgs').textContent = d.messages_count;
+        document.getElementById('vRemote').textContent = d.mesh.remote_users_count || 0;
         document.getElementById('vFiles').textContent = d.files_count;
         document.getElementById('vUp').textContent = fmtUp(d.uptime);
         document.getElementById('vIp').textContent = d.host_ip;
@@ -216,18 +220,27 @@ async function refresh(){
             <td><a href="/api/download/${encodeURIComponent(f.saved_as)}" style="color:var(--accent)">تحميل</a></td></tr>`).join('')
             || '<tr><td colspan="4" style="text-align:center;color:var(--dim)">لا توجد ملفات</td></tr>';
 
-        // Mesh
+        // Mesh peers
         let peers = d.mesh.peers||[];
+        let remUsers = d.remote_users||[];
         if(peers.length){
-            document.getElementById('tMesh').innerHTML = peers.map(p=>
-                `<tr><td style="direction:ltr;font-family:monospace;font-size:.75em">${esc(p.server_id||'')}</td>
+            document.getElementById('tMesh').innerHTML = peers.map(p=>{
+                let uCount = remUsers.filter(u=>u.server_id===p.server_id).length;
+                return `<tr><td style="direction:ltr;font-family:monospace;font-size:.75em">${esc(p.server_id||'')}</td>
                 <td style="direction:ltr">${esc(p.host||'--')}</td>
                 <td>${p.port||'--'}</td>
-                <td>${fmtTime(p.last_seen)}</td></tr>`).join('');
+                <td><span class="badge badge-b">${uCount}</span></td>
+                <td>${fmtTime(p.last_seen)}</td></tr>`;
+            }).join('');
         } else {
             document.getElementById('tMesh').innerHTML =
-                '<tr><td colspan="4" style="text-align:center;color:var(--dim)">لا توجد خوادم</td></tr>';
+                '<tr><td colspan="5" style="text-align:center;color:var(--dim)">لا توجد خوادم</td></tr>';
         }
+        // Remote users
+        document.getElementById('tRemUsers').innerHTML = remUsers.length ? remUsers.map(u=>
+            `<tr><td>${esc(u.username||'--')}</td>
+            <td style="direction:ltr;font-family:monospace;font-size:.75em">${esc(u.server_id||'--')}</td></tr>`).join('')
+            : '<tr><td colspan="2" style="text-align:center;color:var(--dim)">لا يوجد مستخدمون بعيدون</td></tr>';
 
         // Fiber types
         if(d.fiber_types){
