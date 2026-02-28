@@ -1,6 +1,7 @@
 """
 Helen WiFi - Main Server
 Chat + Voice/Video Calls + File Sharing + Mesh + Admin
+Cross-server communication via Mesh HTTP forwarding.
 """
 import os
 import sys
@@ -113,6 +114,7 @@ class BROServer:
         @self._require_admin
         def api_stats():
             uptime = int((datetime.utcnow() - self.start_time).total_seconds())
+            mesh_stats = self.mesh.get_stats()
             return jsonify({
                 "server_id": self.server_id,
                 "uptime": uptime,
@@ -126,7 +128,8 @@ class BROServer:
                 "files_count": len(self.files),
                 "files": self.files,
                 "network": self.detector.to_dict_list(),
-                "mesh": self.mesh.get_stats(),
+                "mesh": mesh_stats,
+                "remote_users": self.mesh.get_all_remote_users(),
                 "signaling": self.signaling.get_stats(),
                 "fiber_types": config.FIBER_TYPES,
                 "logs": self.logs[-50:],
@@ -136,7 +139,7 @@ class BROServer:
         @self._require_admin
         def api_mesh_connect():
             data = request.get_json()
-            self.mesh.connect_to(data.get("host"), int(data.get("port", config.MESH_PORT)))
+            self.mesh.connect_to(data.get("host"), int(data.get("port", config.SERVER_PORT)))
             return jsonify({"status": "ok"})
 
         # --- Files ---
@@ -169,6 +172,48 @@ class BROServer:
         @self.app.route("/api/ice-config")
         def ice_config():
             return jsonify({"iceServers": config.ICE_SERVERS})
+
+        # --- Mesh Inter-server API (no admin auth - internal mesh communication) ---
+        @self.app.route("/api/mesh/info")
+        def mesh_info():
+            return jsonify({
+                "server_id": self.server_id,
+                "host": self.host_ip,
+                "port": config.SERVER_PORT,
+                "mesh_port": config.MESH_PORT,
+            })
+
+        @self.app.route("/api/mesh/sync-users", methods=["POST"])
+        def mesh_sync():
+            data = request.get_json()
+            server_id = data.get("server_id")
+            users = data.get("users", [])
+            host = data.get("host")
+            port = data.get("port")
+            if server_id:
+                self.mesh.update_remote_users(server_id, users)
+                if host and port:
+                    self.mesh.touch_peer(server_id, host, port)
+                self._broadcast_users(sync=False)
+            return jsonify({"status": "ok"})
+
+        @self.app.route("/api/mesh/forward", methods=["POST"])
+        def mesh_forward():
+            data = request.get_json()
+            event = data.get("event")
+            payload = data.get("data", {})
+            target = payload.get("target")
+            if target and target in self.clients:
+                self.sio.emit(event, payload, room=target)
+            return jsonify({"status": "ok"})
+
+        @self.app.route("/api/mesh/broadcast", methods=["POST"])
+        def mesh_broadcast_recv():
+            data = request.get_json()
+            event = data.get("event")
+            payload = data.get("data", {})
+            self.sio.emit(event, payload)
+            return jsonify({"status": "ok"})
 
     def _setup_events(self):
         @self.sio.on("connect")
@@ -214,56 +259,86 @@ class BROServer:
             }
             self.messages.append(msg)
             if msg["target"]:
-                emit("chat_message", msg, room=msg["target"])
+                # Direct message: route to target (local or remote)
+                self._route_event("chat_message", msg, msg["target"])
                 emit("chat_message", msg)
             else:
+                # Broadcast: local + forward to all peers
                 self.sio.emit("chat_message", msg)
+                self.mesh.broadcast_to_peers("chat_message", msg)
 
-        # WebRTC signaling events
+        # --- WebRTC signaling (cross-server capable) ---
         @self.sio.on("call_request")
         def on_call_req(data):
-            self.sio.emit("incoming_call", {
+            self._route_event("incoming_call", {
                 "sender": request.sid,
                 "sender_name": data.get("sender_name"),
                 "call_type": data.get("call_type", "video"),
-            }, room=data["target"])
+                "target": data["target"],
+            }, data["target"])
 
         @self.sio.on("call_accept")
         def on_call_accept(data):
-            self.sio.emit("call_accepted", {"sender": request.sid}, room=data["target"])
+            self._route_event("call_accepted", {
+                "sender": request.sid,
+                "target": data["target"],
+            }, data["target"])
 
         @self.sio.on("call_reject")
         def on_call_reject(data):
-            self.sio.emit("call_rejected", {"sender": request.sid}, room=data["target"])
+            self._route_event("call_rejected", {
+                "sender": request.sid,
+                "target": data["target"],
+            }, data["target"])
 
         @self.sio.on("call_end")
         def on_call_end(data):
             target = data.get("target")
             if target:
-                self.sio.emit("call_ended", {"sender": request.sid}, room=target)
+                self._route_event("call_ended", {
+                    "sender": request.sid,
+                    "target": target,
+                }, target)
 
         @self.sio.on("webrtc_offer")
         def on_offer(data):
-            self.sio.emit("webrtc_offer", {
-                "sdp": data["sdp"], "type": data["type"], "sender": request.sid,
-            }, room=data["target"])
+            self._route_event("webrtc_offer", {
+                "sdp": data["sdp"], "type": data["type"],
+                "sender": request.sid, "target": data["target"],
+            }, data["target"])
 
         @self.sio.on("webrtc_answer")
         def on_answer(data):
-            self.sio.emit("webrtc_answer", {
-                "sdp": data["sdp"], "type": data["type"], "sender": request.sid,
-            }, room=data["target"])
+            self._route_event("webrtc_answer", {
+                "sdp": data["sdp"], "type": data["type"],
+                "sender": request.sid, "target": data["target"],
+            }, data["target"])
 
         @self.sio.on("webrtc_ice")
         def on_ice(data):
-            self.sio.emit("webrtc_ice", {
-                "candidate": data.get("candidate"), "sender": request.sid,
-            }, room=data["target"])
+            self._route_event("webrtc_ice", {
+                "candidate": data.get("candidate"),
+                "sender": request.sid, "target": data["target"],
+            }, data["target"])
 
-    def _broadcast_users(self):
-        users = [{"sid": c["sid"], "username": c["username"]}
-                 for c in self.clients.values() if c["username"]]
-        self.sio.emit("users_online", {"users": users})
+    def _route_event(self, event, data, target_sid):
+        """Emit to local client or forward to remote peer server"""
+        if target_sid in self.clients:
+            self.sio.emit(event, data, room=target_sid)
+        else:
+            server_id = self.mesh.find_user_server(target_sid)
+            if server_id:
+                self.mesh.forward_to_peer(server_id, event, data)
+
+    def _broadcast_users(self, sync=True):
+        """Send user list to all local clients. If sync=True, also sync to mesh peers."""
+        local_users = [{"sid": c["sid"], "username": c["username"]}
+                       for c in self.clients.values() if c["username"]]
+        remote_users = self.mesh.get_all_remote_users()
+        all_users = local_users + remote_users
+        self.sio.emit("users_online", {"users": all_users})
+        if sync:
+            self.mesh.sync_users(local_users)
 
     def run(self, host=None, port=None, silent=True):
         host = host or config.SERVER_HOST
