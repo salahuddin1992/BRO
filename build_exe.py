@@ -2,7 +2,7 @@
 """
 BRO Server - Build to EXE
 ==========================
-This script converts the entire BRO project into a standalone .exe file.
+Converts the entire BRO project into a standalone .exe file.
 
 Just run:
     python build_exe.py
@@ -23,12 +23,11 @@ def check_pyinstaller():
     """Ensure PyInstaller is installed."""
     try:
         import PyInstaller
-        print(f"[OK] PyInstaller {PyInstaller.__version__} found")
+        print(f"[OK] PyInstaller {PyInstaller.__version__}")
         return True
     except ImportError:
-        print("[!] PyInstaller not found. Installing...")
+        print("[*] Installing PyInstaller...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller>=6.3.0"])
-        print("[OK] PyInstaller installed")
         return True
 
 
@@ -41,111 +40,123 @@ def install_dependencies():
         print("[OK] Dependencies installed")
 
 
-def build_exe():
+def build_exe(with_console=False):
     """Build the .exe using PyInstaller."""
-    print("\n" + "=" * 50)
-    print("  BRO Server - Building EXE")
-    print("=" * 50 + "\n")
+    mode = "Debug" if with_console else "Silent"
+    name = "BRO-Server-Debug" if with_console else "BRO-Server"
+
+    print(f"\n{'=' * 50}")
+    print(f"  BRO Server - Building EXE ({mode})")
+    print(f"{'=' * 50}\n")
 
     # Clean previous builds
     for d in [DIST_DIR, BUILD_DIR]:
         if os.path.exists(d):
             shutil.rmtree(d)
-            print(f"[*] Cleaned {d}")
 
-    # Collect data files
-    templates_dir = os.path.join(PROJECT_DIR, "templates")
-    static_dir = os.path.join(PROJECT_DIR, "static")
+    sep = os.pathsep  # ; on Windows, : on Linux/Mac
 
-    # Build PyInstaller command
+    # All data directories to bundle
+    data_args = []
+    for folder in ["templates", "static", "server", "network", "mesh", "utils"]:
+        folder_path = os.path.join(PROJECT_DIR, folder)
+        if os.path.exists(folder_path):
+            data_args.extend(["--add-data", f"{folder_path}{sep}{folder}"])
+
+    # Config file
+    config_path = os.path.join(PROJECT_DIR, "config.py")
+    if os.path.exists(config_path):
+        data_args.extend(["--add-data", f"{config_path}{sep}."])
+
+    # Hidden imports - all modules PyInstaller might miss
+    hidden_imports = [
+        "eventlet",
+        "eventlet.hubs",
+        "eventlet.hubs.epolls",
+        "eventlet.hubs.kqueue",
+        "eventlet.hubs.selects",
+        "eventlet.hubs.poll",
+        "eventlet.green",
+        "eventlet.green.ssl",
+        "flask",
+        "flask.json",
+        "flask_socketio",
+        "flask_cors",
+        "engineio",
+        "engineio.async_drivers",
+        "engineio.async_drivers.eventlet",
+        "socketio",
+        "dns",
+        "dns.resolver",
+        "dns.rdatatype",
+        "dns.name",
+        "netifaces",
+        "psutil",
+        "zeroconf",
+        "config",
+        "server",
+        "server.bro_server",
+        "server.signaling",
+        "network",
+        "network.detector",
+        "mesh",
+        "mesh.mesh_node",
+    ]
+
+    hidden_args = []
+    for h in hidden_imports:
+        hidden_args.extend(["--hidden-import", h])
+
+    # Build command
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--name", "BRO-Server",
+        "--name", name,
         "--onefile",
-        "--noconsole",  # Runs silently (no console window)
-        "--icon", "NONE",
-        # Add data directories
-        "--add-data", f"{templates_dir}{os.pathsep}templates",
-        "--add-data", f"{static_dir}{os.pathsep}static",
-        # Hidden imports that PyInstaller might miss
-        "--hidden-import", "eventlet",
-        "--hidden-import", "eventlet.hubs.epolls",
-        "--hidden-import", "eventlet.hubs.kqueue",
-        "--hidden-import", "eventlet.hubs.selects",
-        "--hidden-import", "flask",
-        "--hidden-import", "flask_socketio",
-        "--hidden-import", "flask_cors",
-        "--hidden-import", "engineio.async_drivers.eventlet",
-        "--hidden-import", "dns",
-        "--hidden-import", "dns.resolver",
-        # Main script
+        "--console" if with_console else "--noconsole",
+        *data_args,
+        *hidden_args,
+        "--noconfirm",
         os.path.join(PROJECT_DIR, "run.py"),
     ]
 
-    print("[*] Running PyInstaller...")
-    print(f"    Command: {' '.join(cmd[-5:])}")
-    print()
-
+    print(f"[*] Building {name}...")
     result = subprocess.run(cmd, cwd=PROJECT_DIR)
 
     if result.returncode == 0:
-        exe_name = "BRO-Server.exe" if sys.platform == "win32" else "BRO-Server"
+        exe_name = f"{name}.exe" if sys.platform == "win32" else name
         exe_path = os.path.join(DIST_DIR, exe_name)
 
         # Create uploads folder next to exe
-        uploads_in_dist = os.path.join(DIST_DIR, "uploads")
-        os.makedirs(uploads_in_dist, exist_ok=True)
+        os.makedirs(os.path.join(DIST_DIR, "uploads"), exist_ok=True)
 
-        print("\n" + "=" * 50)
+        print(f"\n{'=' * 50}")
         print("  BUILD SUCCESSFUL!")
-        print("=" * 50)
-        print(f"\n  EXE Location: {exe_path}")
+        print(f"{'=' * 50}")
+        print(f"\n  File: {exe_path}")
         if os.path.exists(exe_path):
             size_mb = os.path.getsize(exe_path) / (1024 * 1024)
             print(f"  Size: {size_mb:.1f} MB")
-        print(f"\n  To run: {exe_path}")
-        print(f"  Then open: http://localhost:8400/client")
-        print(f"  Admin:     http://localhost:8400/admin")
+        print(f"\n  Run the EXE and it will:")
+        print(f"    1. Start the server silently")
+        print(f"    2. Open the browser automatically")
+        print(f"    3. Client: http://localhost:8400/client")
+        print(f"    4. Admin:  http://localhost:8400/admin")
         print()
         return True
     else:
         print("\n[ERROR] Build failed!")
-        print("Check the output above for errors.")
         return False
-
-
-def build_with_console():
-    """Build version WITH console window (for debugging)."""
-    print("[*] Building debug version (with console)...")
-    cmd = [
-        sys.executable, "-m", "PyInstaller",
-        "--name", "BRO-Server-Debug",
-        "--onefile",
-        "--console",  # Show console for debugging
-        "--add-data", f"{os.path.join(PROJECT_DIR, 'templates')}{os.pathsep}templates",
-        "--add-data", f"{os.path.join(PROJECT_DIR, 'static')}{os.pathsep}static",
-        "--hidden-import", "eventlet",
-        "--hidden-import", "eventlet.hubs.epolls",
-        "--hidden-import", "eventlet.hubs.kqueue",
-        "--hidden-import", "eventlet.hubs.selects",
-        "--hidden-import", "flask",
-        "--hidden-import", "flask_socketio",
-        "--hidden-import", "flask_cors",
-        "--hidden-import", "engineio.async_drivers.eventlet",
-        os.path.join(PROJECT_DIR, "run.py"),
-    ]
-    subprocess.run(cmd, cwd=PROJECT_DIR)
 
 
 def main():
     print("""
-    ╔══════════════════════════════════════╗
-    ║     BRO Server - EXE Builder        ║
-    ╠══════════════════════════════════════╣
-    ║  1. Build EXE (Silent)              ║
-    ║  2. Build EXE (With Console/Debug)  ║
-    ║  3. Install Dependencies Only       ║
-    ╚══════════════════════════════════════╝
+    +======================================+
+    |     BRO Server - EXE Builder         |
+    +======================================+
+    |  1. Build EXE (Silent + Auto-open)   |
+    |  2. Build EXE (With Console/Debug)   |
+    |  3. Install Dependencies Only        |
+    +======================================+
     """)
 
     if len(sys.argv) > 1:
@@ -153,17 +164,17 @@ def main():
     else:
         choice = input("  Choose [1/2/3]: ").strip()
 
-    if choice == "1" or choice == "":
+    if choice in ("1", ""):
         install_dependencies()
         check_pyinstaller()
-        build_exe()
+        build_exe(with_console=False)
     elif choice == "2":
         install_dependencies()
         check_pyinstaller()
-        build_with_console()
+        build_exe(with_console=True)
     elif choice == "3":
         install_dependencies()
-        print("[OK] All dependencies installed!")
+        print("[OK] Done!")
     else:
         print("Invalid choice")
 

@@ -8,9 +8,9 @@ import sys
 import uuid
 import json
 import logging
-import hashlib
 import time
-import base64
+import threading
+import webbrowser
 from datetime import datetime
 from functools import wraps
 
@@ -43,9 +43,9 @@ class BROServer:
         self.server_id = str(uuid.uuid4())[:12]
         self.start_time = datetime.utcnow()
 
-        # Flask app
-        template_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates")
-        static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+        # Flask app - use config.BASE_PATH for bundled resources
+        template_dir = os.path.join(config.BASE_PATH, "templates")
+        static_dir = os.path.join(config.BASE_PATH, "static")
         self.app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
         self.app.secret_key = config.SECRET_KEY
         self.app.config["MAX_CONTENT_LENGTH"] = None  # unlimited file upload
@@ -343,6 +343,11 @@ class BROServer:
 ║  Client     : http://{self.host_ip}:{port}/client{' ' * (16 - len(str(port)))}║
 ╚══════════════════════════════════════════════╝
 """)
+
+        # Auto-open browser when running as EXE
+        if getattr(sys, 'frozen', False):
+            url = f"http://127.0.0.1:{port}/client"
+            threading.Timer(1.5, lambda: webbrowser.open(url)).start()
 
         self.socketio.run(self.app, host=host, port=port, debug=False, log_output=not silent)
 
