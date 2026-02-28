@@ -196,6 +196,7 @@ let localStream, pc, inCall=null;
 let micOn=true, camOn=true;
 let msgCount=0, fileCount=0;
 let iceQ = [];
+let lastUsers = [];
 
 let iceConfig = {iceServers:[
     {urls:'stun:stun.l.google.com:19302'},
@@ -227,6 +228,7 @@ function initSocket(){
     });
 
     socket.on('users_online', d=>{
+        lastUsers = d.users;
         renderUsers(d.users);
         document.getElementById('iOnline').textContent = d.users.length;
     });
@@ -279,8 +281,7 @@ function pickUser(sid,name){
     selUser = selUser===sid ? null : sid;
     selName = selUser ? name : null;
     document.getElementById('chatTarget').textContent = selUser ? 'محادثة مع '+name : 'غرفة عامة';
-    renderUsers(Array.from(document.querySelectorAll('.user')).length ? [] : []); // re-trigger via socket
-    socket.emit('register',{username:me}); // triggers users_online
+    renderUsers(lastUsers);
 }
 
 function sendMsg(){
@@ -435,7 +436,8 @@ function setupPC(target){
     pc.onicecandidate = e=>{ if(e.candidate) socket.emit('webrtc_ice',{candidate:e.candidate,target}); };
     pc.ontrack = e=>{
         document.getElementById('remoteVid').srcObject = e.streams[0];
-        document.getElementById('vidArea').classList.add('on');
+        // Only show video area for video calls, not audio-only
+        if(e.track.kind === 'video') document.getElementById('vidArea').classList.add('on');
     };
     pc.onconnectionstatechange = ()=>{
         if(pc.connectionState==='connected') sysMsg('تم الاتصال');

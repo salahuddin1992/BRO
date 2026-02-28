@@ -205,10 +205,29 @@ async function refresh(){
             <td>${n.is_fiber?'<span class="badge badge-f">فايبر</span>':'--'}</td>
             <td><span class="badge badge-g">فعال</span></td></tr>`).join('');
 
+        // Messages
+        document.getElementById('tMsg').innerHTML = (d.messages||[]).slice().reverse().map(m=>
+            `<tr><td>${esc(m.sender)}</td><td>${esc(m.text)}</td><td>${fmtTime(m.timestamp)}</td></tr>`).join('')
+            || '<tr><td colspan="3" style="text-align:center;color:var(--dim)">لا توجد رسائل</td></tr>';
+
+        // Files
+        document.getElementById('tFl').innerHTML = (d.files||[]).map(f=>
+            `<tr><td>${esc(f.name)}</td><td>${fmtSize(f.size)}</td><td>${esc(f.uploaded_by)}</td>
+            <td><a href="/api/download/${encodeURIComponent(f.saved_as)}" style="color:var(--accent)">تحميل</a></td></tr>`).join('')
+            || '<tr><td colspan="4" style="text-align:center;color:var(--dim)">لا توجد ملفات</td></tr>';
+
         // Mesh
         let peers = d.mesh.peers||[];
-        document.getElementById('tMesh').innerHTML = peers.length ? '' :
-            '<tr><td colspan="4" style="text-align:center;color:var(--dim)">لا توجد خوادم</td></tr>';
+        if(peers.length){
+            document.getElementById('tMesh').innerHTML = peers.map(p=>
+                `<tr><td style="direction:ltr;font-family:monospace;font-size:.75em">${esc(p.server_id||'')}</td>
+                <td style="direction:ltr">${esc(p.host||'--')}</td>
+                <td>${p.port||'--'}</td>
+                <td>${fmtTime(p.last_seen)}</td></tr>`).join('');
+        } else {
+            document.getElementById('tMesh').innerHTML =
+                '<tr><td colspan="4" style="text-align:center;color:var(--dim)">لا توجد خوادم</td></tr>';
+        }
 
         // Fiber types
         if(d.fiber_types){

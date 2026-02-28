@@ -140,4 +140,4 @@ class MeshNode:
 
     def get_stats(self):
         with self._lock:
-            return {"peer_count": len(self.peers), "peers": list(self.peers.keys())}
+            return {"peer_count": len(self.peers), "peers": list(self.peers.values())}
