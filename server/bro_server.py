@@ -262,6 +262,8 @@ class BROServer:
             client = self.connected_clients.pop(sid, None)
             name = client.get("username", sid) if client else sid
             self._log(f"Client disconnected: {name}")
+            # Clean up signaling rooms
+            self.signaling.handle_disconnect(sid)
             self.socketio.emit("user_offline", {"sid": sid, "username": name})
 
         @self.socketio.on("register")

@@ -141,15 +141,20 @@ class SignalingServer:
         def on_call_end(data):
             """Handle call ending."""
             from flask import request
-            room_id = data.get("room_id")
-            self.sio.emit("call_ended", {
-                "sender": request.sid,
-            }, room=room_id, skip_sid=request.sid)
+            target_sid = data.get("target")
+            if target_sid:
+                self.sio.emit("call_ended", {
+                    "sender": request.sid,
+                }, room=target_sid)
+            else:
+                # Broadcast to all (fallback)
+                self.sio.emit("call_ended", {
+                    "sender": request.sid,
+                }, broadcast=True, skip_sid=request.sid)
 
-        @self.sio.on("disconnect")
-        def on_disconnect():
-            from flask import request
-            self._remove_user(request.sid)
+    def handle_disconnect(self, sid):
+        """Called externally from bro_server on disconnect."""
+        self._remove_user(sid)
 
     def _remove_user(self, sid):
         """Remove user from their room."""
