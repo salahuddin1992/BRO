@@ -7,8 +7,13 @@
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 :root { --bg:#0a0a1a; --card:rgba(255,255,255,0.04); --border:rgba(255,255,255,0.08);
-        --text:#e0e0e0; --dim:rgba(255,255,255,0.4); --accent:#00d4ff; --green:#00e676; --red:#ff5252; }
+        --text:#e0e0e0; --dim:rgba(255,255,255,0.4); --accent:#00d4ff; --green:#00e676; --red:#ff5252; --orange:#ff9100; }
 body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var(--text); height:100vh; overflow:hidden; }
+
+/* Connection status bar */
+.conn-bar { position:fixed; top:0; left:0; right:0; padding:8px; text-align:center; font-size:.82em;
+            background:var(--red); color:#fff; z-index:300; transform:translateY(-100%); transition:transform .3s; }
+.conn-bar.on { transform:translateY(0); }
 
 /* Login */
 .login { position:fixed; inset:0; background:rgba(0,0,0,0.85); display:flex; align-items:center; justify-content:center; z-index:100; }
@@ -37,14 +42,19 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 
 /* Center */
 .center { display:flex; flex-direction:column; }
-.topbar { display:flex; align-items:center; justify-content:space-between; padding:10px 18px; border-bottom:1px solid var(--border); }
+.topbar { display:flex; align-items:center; justify-content:space-between; padding:10px 18px; border-bottom:1px solid var(--border); gap:10px; }
 .topbar .target { font-size:.9em; color:var(--dim); }
-.btns { display:flex; gap:6px; }
+.btns { display:flex; gap:6px; align-items:center; }
 .cbtn { width:38px; height:38px; border-radius:50%; border:none; cursor:pointer; font-size:1.1em;
         display:flex; align-items:center; justify-content:center; }
 .cbtn.voice { background:var(--green); color:#fff; }
 .cbtn.video { background:var(--accent); color:#fff; }
 .cbtn.hangup { background:var(--red); color:#fff; display:none; }
+
+/* Call timer */
+.call-timer { display:none; color:var(--green); font-family:monospace; font-size:.82em; letter-spacing:1px; }
+.call-timer.on { display:inline-block; animation:pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:.6;} }
 
 /* Video */
 .vid-area { display:none; background:#000; position:relative; max-height:45vh; }
@@ -104,10 +114,29 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 .acc { background:var(--green); color:#fff; }
 .rej { background:var(--red); color:#fff; }
 
-@media(max-width:768px) { .app{grid-template-columns:1fr;} .users,.info{display:none;} }
+/* Mobile toggle */
+.mob-btn { display:none; position:fixed; top:10px; right:10px; z-index:60; width:38px; height:38px;
+           border-radius:50%; border:1px solid var(--border); background:rgba(10,10,26,0.9);
+           color:var(--accent); font-size:1.3em; cursor:pointer; align-items:center; justify-content:center; }
+
+@media(max-width:768px) {
+    .app { grid-template-columns:1fr; }
+    .users { display:none; position:fixed; top:0; right:0; width:260px; height:100vh; z-index:50;
+             background:var(--bg); border-left:1px solid var(--border); box-shadow:-4px 0 20px rgba(0,0,0,0.6); }
+    .users.mob-on { display:block; }
+    .info { display:none; }
+    .mob-btn { display:flex; }
+    #localVid { width:100px; }
+}
 </style>
 </head>
 <body>
+
+<!-- Connection Status -->
+<div class="conn-bar" id="connBar">انقطع الاتصال... جاري إعادة الاتصال</div>
+
+<!-- Mobile Toggle -->
+<button class="mob-btn" id="mobBtn" onclick="toggleMobile()">&#9776;</button>
 
 <!-- Login -->
 <div class="login" id="login">
@@ -132,7 +161,7 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 
 <!-- App -->
 <div class="app">
-    <div class="users">
+    <div class="users" id="usersPanel">
         <div class="sec-title">المتصلون</div>
         <div id="userList"></div>
     </div>
@@ -140,6 +169,7 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
     <div class="center">
         <div class="topbar">
             <span class="target" id="chatTarget">غرفة عامة</span>
+            <span class="call-timer" id="callTimer">00:00</span>
             <div class="btns">
                 <button class="cbtn voice" onclick="startCall('audio')" title="صوت">&#128222;</button>
                 <button class="cbtn video" onclick="startCall('video')" title="فيديو">&#127909;</button>
@@ -153,6 +183,7 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
             <div class="vid-ctrl">
                 <button class="vbtn" id="micBtn" onclick="toggleMic()">&#127908;</button>
                 <button class="vbtn" id="camBtn" onclick="toggleCam()">&#127909;</button>
+                <button class="vbtn" onclick="toggleFullscreen()" title="ملء الشاشة">&#x26F6;</button>
                 <button class="vbtn off" onclick="endCall()">&#10005;</button>
             </div>
         </div>
@@ -198,6 +229,7 @@ let micOn=true, camOn=true;
 let msgCount=0, fileCount=0;
 let iceQ = [];
 let lastUsers = [];
+let callTimerInt=null, callStart=null;
 
 let iceConfig = {iceServers:[
     {urls:'stun:stun.l.google.com:19302'},
@@ -206,6 +238,64 @@ let iceConfig = {iceServers:[
     {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
     {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
 ]};
+
+// --- Ringtone (Web Audio API) ---
+let ringCtx, ringOscArr, ringGain, ringTimer;
+function startRing(){
+    try {
+        ringCtx = new (window.AudioContext || window.webkitAudioContext)();
+        ringGain = ringCtx.createGain();
+        ringGain.connect(ringCtx.destination);
+        ringGain.gain.value = 0.15;
+        let o1 = ringCtx.createOscillator();
+        o1.type='sine'; o1.frequency.value=440; o1.connect(ringGain); o1.start();
+        let o2 = ringCtx.createOscillator();
+        o2.type='sine'; o2.frequency.value=480; o2.connect(ringGain); o2.start();
+        ringOscArr=[o1,o2];
+        let on=true;
+        ringTimer = setInterval(()=>{
+            on=!on;
+            ringGain.gain.setTargetAtTime(on?0.15:0, ringCtx.currentTime, 0.02);
+        }, 800);
+    } catch(e){}
+}
+function stopRing(){
+    if(ringTimer) clearInterval(ringTimer);
+    if(ringOscArr) ringOscArr.forEach(o=>{ try{o.stop();}catch(e){} });
+    if(ringCtx) try{ringCtx.close();}catch(e){}
+    ringCtx=ringOscArr=ringGain=ringTimer=null;
+}
+
+// --- Call Timer ---
+function startCallTimer(){
+    callStart = Date.now();
+    document.getElementById('callTimer').classList.add('on');
+    callTimerInt = setInterval(()=>{
+        let s = Math.floor((Date.now()-callStart)/1000);
+        let m = Math.floor(s/60); s=s%60;
+        document.getElementById('callTimer').textContent =
+            String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+    }, 1000);
+}
+function stopCallTimer(){
+    if(callTimerInt) clearInterval(callTimerInt);
+    callTimerInt=null; callStart=null;
+    document.getElementById('callTimer').classList.remove('on');
+    document.getElementById('callTimer').textContent = '00:00';
+}
+
+// --- Mobile ---
+function toggleMobile(){
+    document.getElementById('usersPanel').classList.toggle('mob-on');
+}
+
+// --- Fullscreen ---
+function toggleFullscreen(){
+    let el = document.getElementById('vidArea');
+    if(document.fullscreenElement) document.exitFullscreen();
+    else if(el.requestFullscreen) el.requestFullscreen();
+    else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+}
 
 document.getElementById('nameIn').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
 
@@ -219,7 +309,14 @@ function doLogin(){
 function initSocket(){
     socket = io({reconnection:true, reconnectionDelay:1000, reconnectionAttempts:Infinity});
 
-    socket.on('connect', ()=> socket.emit('register',{username:me}));
+    socket.on('connect', ()=>{
+        document.getElementById('connBar').classList.remove('on');
+        socket.emit('register',{username:me});
+    });
+
+    socket.on('disconnect', ()=>{
+        document.getElementById('connBar').classList.add('on');
+    });
 
     socket.on('server_info', d=>{
         document.getElementById('iServerId').textContent = d.server_id;
@@ -259,6 +356,7 @@ function initSocket(){
         document.getElementById('callTypeText').textContent = d.call_type==='video'?'مكالمة فيديو':'مكالمة صوتية';
         document.getElementById('callPopup').classList.add('on');
         window._callType = d.call_type;
+        startRing();
     });
 
     socket.on('call_accepted', async d=>{ await createOffer(d.sender); });
@@ -283,6 +381,7 @@ function pickUser(sid,name){
     selName = selUser ? name : null;
     document.getElementById('chatTarget').textContent = selUser ? 'محادثة مع '+name : 'غرفة عامة';
     renderUsers(lastUsers);
+    document.getElementById('usersPanel').classList.remove('mob-on');
 }
 
 function sendMsg(){
@@ -377,6 +476,7 @@ async function startCall(type){
 
 async function acceptCall(){
     document.getElementById('callPopup').classList.remove('on');
+    stopRing();
     let type = window._callType || 'video';
     try {
         localStream = await navigator.mediaDevices.getUserMedia({
@@ -392,6 +492,7 @@ async function acceptCall(){
 
 function rejectCall(){
     document.getElementById('callPopup').classList.remove('on');
+    stopRing();
     socket.emit('call_reject',{target:inCall});
     inCall=null;
 }
@@ -437,11 +538,10 @@ function setupPC(target){
     pc.onicecandidate = e=>{ if(e.candidate) socket.emit('webrtc_ice',{candidate:e.candidate,target}); };
     pc.ontrack = e=>{
         document.getElementById('remoteVid').srcObject = e.streams[0];
-        // Only show video area for video calls, not audio-only
         if(e.track.kind === 'video') document.getElementById('vidArea').classList.add('on');
     };
     pc.onconnectionstatechange = ()=>{
-        if(pc.connectionState==='connected') sysMsg('تم الاتصال');
+        if(pc.connectionState==='connected'){ sysMsg('تم الاتصال'); startCallTimer(); }
         if(pc.connectionState==='failed'||pc.connectionState==='disconnected'){ sysMsg('انقطع الاتصال'); cleanup(); }
     };
 }
@@ -452,6 +552,8 @@ function endCall(){
 }
 
 function cleanup(){
+    stopRing();
+    stopCallTimer();
     if(pc){ pc.close(); pc=null; }
     if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
     inCall=null; iceQ=[]; micOn=true; camOn=true;
