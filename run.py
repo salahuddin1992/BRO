@@ -1,29 +1,59 @@
 #!/usr/bin/env python3
 """
-BRO Communication Server - Main Entry Point
+Helen WiFi Server - Main Entry Point
 
 Usage:
     python run.py              # Start server (silent mode)
     python run.py --verbose    # Start with console output
     python run.py --port 9000  # Custom port
-    python run.py --host 0.0.0.0 --port 8400
 """
+# CRITICAL: eventlet monkey patch MUST be first before any other import
+import eventlet
+eventlet.monkey_patch()
+
 import sys
 import os
 import argparse
 
-# Ensure project root is in path
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+def get_base_path():
+    """Get the base path - works both for script and PyInstaller EXE."""
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle
+        return sys._MEIPASS
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_runtime_path():
+    """Get runtime path for writable files (uploads, logs)."""
+    if getattr(sys, 'frozen', False):
+        # EXE: use the folder where the .exe is located
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+# Set paths before importing anything else
+BASE_PATH = get_base_path()
+RUNTIME_PATH = get_runtime_path()
+sys.path.insert(0, BASE_PATH)
+
+# Set environment for config module
+os.environ["BRO_BASE_PATH"] = BASE_PATH
+os.environ["BRO_RUNTIME_PATH"] = RUNTIME_PATH
 
 from server.bro_server import create_app
 
 
 def main():
-    parser = argparse.ArgumentParser(description="BRO Communication Server")
+    parser = argparse.ArgumentParser(description="Helen WiFi Server")
     parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8400, help="Port (default: 8400)")
     parser.add_argument("--verbose", action="store_true", help="Show console output")
     args = parser.parse_args()
+
+    # If running as EXE without --verbose, default to verbose so user sees the URL
+    if getattr(sys, 'frozen', False) and not args.verbose:
+        args.verbose = True
 
     server = create_app()
     server.run(host=args.host, port=args.port, silent=not args.verbose)

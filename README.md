@@ -1,85 +1,62 @@
-# BRO - WiFi Communication Server
+# هيلين WiFi - Helen WiFi
 
-A complete communication server with real-time voice/video calls, messaging, file sharing, mesh networking, and a full admin control panel.
+سيرفر اتصالات كامل عبر WiFi مع مكالمات صوت/فيديو، محادثات فورية، مشاركة ملفات، شبكة Mesh، ولوحة تحكم كاملة.
 
-## Features
+## المميزات
 
-- **Voice & Video Calls** - WebRTC-based peer-to-peer calls
-- **Real-time Chat** - Instant messaging (private & public)
-- **File Sharing** - Upload and share files with all connected users
-- **Mesh Networking** - Multiple servers interconnect automatically (up to 100+)
-- **Admin Control Panel** - Full dashboard with real-time monitoring
-- **Network Auto-Detection** - Works with all network types: WiFi, Ethernet, DSL, Fiber, GPON, 4G/5G, VPN, and all router types
-- **Silent Mode** - Server runs in background without disturbing the user
-- **EXE Builder** - One-click conversion to standalone executable
+- مكالمات صوتية وفيديو (WebRTC) بأقصى دقة للكاميرا
+- محادثات فورية (عامة + خاصة)
+- مشاركة ملفات بحجم غير محدود مع شريط تقدم
+- شبكة Mesh - حتى 100+ سيرفر يتصلون ببعض
+- لوحة تحكم كاملة مع مراقبة مباشرة
+- كشف تلقائي لكل انواع الشبكات والراوترات
+- يعمل بصمت بالخلفية
+- تحويل لـ EXE بضغطة واحدة
 
-## Quick Start
+## التشغيل السريع
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the server
 python run.py --verbose
-
-# Open in browser
-# Client: http://localhost:8400/client
-# Admin:  http://localhost:8400/admin
 ```
 
-## Build EXE
+- العميل: http://localhost:8400/client
+- لوحة التحكم: http://localhost:8400/admin (admin / admin123)
+
+## بناء EXE
 
 ```bash
-python build_exe.py
-# Choose option 1 for silent EXE, 2 for debug EXE
+python build.py
 ```
 
-## Admin Login
+أو على ويندوز: انقر مرتين على `build.bat`
 
-- **Username:** admin
-- **Password:** admin123
+الملف يُبنى تلقائياً بدون أسئلة ويكون بمجلد `dist/HelenWiFi.exe`
 
-(Configure via environment variables `BRO_ADMIN_USER` and `BRO_ADMIN_PASS`)
-
-## Architecture
+## هيكل المشروع
 
 ```
-BRO/
-├── run.py              # Main entry point
-├── build_exe.py        # EXE builder (PyInstaller)
-├── config.py           # Global configuration
-├── requirements.txt    # Python dependencies
+├── run.py              # نقطة التشغيل
+├── build.py            # بناء EXE (ضغطة واحدة)
+├── build.bat           # بناء EXE (ويندوز - نقر مرتين)
+├── config.py           # الاعدادات
+├── requirements.txt    # المتطلبات
 ├── server/
-│   ├── bro_server.py   # Main Flask+SocketIO server
-│   └── signaling.py    # WebRTC signaling handler
+│   ├── bro_server.py   # السيرفر الرئيسي
+│   └── signaling.py    # WebRTC signaling
 ├── network/
-│   └── detector.py     # Network interface auto-detection
+│   └── detector.py     # كشف الشبكة
 ├── mesh/
-│   └── mesh_node.py    # Mesh networking (UDP discovery)
+│   └── mesh_node.py    # شبكة Mesh
 ├── templates/
-│   ├── admin.html      # Admin control panel
-│   ├── client.html     # Client communication interface
-│   └── login.html      # Admin login page
+│   ├── admin.html      # لوحة التحكم
+│   ├── client.html     # واجهة الاتصال
+│   └── login.html      # تسجيل الدخول
 └── static/
-    ├── css/
-    ├── js/
-    └── img/
+    └── js/
+        └── socket.io.min.js
 ```
 
-## Supported Network Types
+## الشبكات المدعومة
 
-WiFi, Ethernet, DSL, ADSL, VDSL, Fiber, GPON, EPON, Cable, 4G, LTE, 5G, Cellular, VPN, WireGuard, PPPoE, Bridge, Bonded, USB Tethering, and all standard router types.
-
-## Mesh Networking
-
-Servers automatically discover each other on the local network via UDP broadcast. You can also manually connect to remote servers through the admin panel. Each server acts as a relay node, creating a fully interconnected mesh.
-
-## Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BRO_PORT` | 8400 | Server port |
-| `BRO_SECRET` | random | Session secret key |
-| `BRO_ADMIN_USER` | admin | Admin username |
-| `BRO_ADMIN_PASS` | admin123 | Admin password |
-| `BRO_LOG_LEVEL` | INFO | Log level |
+WiFi, Ethernet, DSL, ADSL, VDSL, Fiber, GPON, EPON, Cable, 4G, LTE, 5G, Cellular, VPN, WireGuard, PPPoE, Bridge وكل انواع الراوترات.

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BRO - واجهة الاتصال</title>
+    <title>هيلين WiFi - واجهة الاتصال</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         :root {
@@ -386,7 +386,7 @@
     <!-- Login Overlay -->
     <div class="login-overlay" id="loginOverlay">
         <div class="login-form">
-            <h2>BRO</h2>
+            <h2>هيلين WiFi</h2>
             <p style="color:var(--text2); margin-bottom:20px; font-size:0.9em;">ادخل اسمك للاتصال</p>
             <input type="text" id="usernameInput" placeholder="اسم المستخدم" autofocus>
             <button onclick="doLogin()">اتصال</button>
@@ -470,7 +470,21 @@
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="/static/js/socket.io.min.js"></script>
+    <script>
+        // WebRTC browser compatibility shim
+        if (!navigator.mediaDevices) navigator.mediaDevices = {};
+        if (!navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia = function(c) {
+                var gum = navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
+                if (!gum) return Promise.reject(new Error('getUserMedia not supported'));
+                return new Promise(function(resolve, reject) { gum.call(navigator, c, resolve, reject); });
+            };
+        }
+        window.RTCPeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection || window.mozRTCPeerConnection;
+        window.RTCSessionDescription = window.RTCSessionDescription || window.mozRTCSessionDescription;
+        window.RTCIceCandidate = window.RTCIceCandidate || window.mozRTCIceCandidate;
+    </script>
     <script>
         let socket, username, selectedUser = null;
         let localStream, peerConnection, incomingCallData;

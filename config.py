@@ -1,8 +1,23 @@
 """
-Global configuration for BRO WiFi Server
+Global configuration for Helen WiFi Server
 """
 import os
+import sys
 import secrets
+
+
+def _get_base_path():
+    """Base path: where code/templates/static are."""
+    return os.environ.get("BRO_BASE_PATH", os.path.dirname(os.path.abspath(__file__)))
+
+
+def _get_runtime_path():
+    """Runtime path: where writable files go (uploads, logs)."""
+    return os.environ.get("BRO_RUNTIME_PATH", os.path.dirname(os.path.abspath(__file__)))
+
+
+BASE_PATH = _get_base_path()
+RUNTIME_PATH = _get_runtime_path()
 
 # Server settings
 SERVER_HOST = "0.0.0.0"
@@ -21,7 +36,7 @@ MESH_HEARTBEAT_TIMEOUT = 15  # seconds
 
 # File transfer - unlimited
 MAX_FILE_SIZE = 0  # 0 = unlimited
-UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), "uploads")
+UPLOAD_FOLDER = os.path.join(RUNTIME_PATH, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # WebRTC
@@ -42,4 +57,4 @@ SUPPORTED_INTERFACES = [
 
 # Logging
 LOG_LEVEL = os.environ.get("BRO_LOG_LEVEL", "INFO")
-LOG_FILE = os.path.join(os.path.dirname(__file__), "bro_server.log")
+LOG_FILE = os.path.join(RUNTIME_PATH, "helen_wifi.log")
