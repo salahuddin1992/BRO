@@ -1,7 +1,16 @@
 """
 Helen WiFi Server - Main Server Module
+========================================
 WiFi/Network Communication Server with WebRTC, Mesh Networking,
-and Full Control Panel.
+Full Control Panel, and Universal Router Support.
+
+Features:
+  - Real-time chat with typing indicators, read receipts, offline queue
+  - Voice/Video calls via WebRTC with TURN fallback
+  - File upload with progress bar, drag-drop, chunked/resumable
+  - Mesh networking with TCP fallback
+  - Screen sharing
+  - Works on ALL routers including Fiber Optic (GPON/EPON/XG-PON/SFP/ONT/ONU)
 """
 import os
 import sys
@@ -9,6 +18,7 @@ import uuid
 import json
 import logging
 import time
+import hashlib
 import threading
 import webbrowser
 from datetime import datetime
@@ -36,36 +46,42 @@ class BROServer:
     """
     Main BRO Communication Server.
     Provides: WebRTC signaling, mesh networking, file transfer,
-    messaging, and admin control panel.
+    messaging, admin control panel - works on ALL network types.
     """
 
     def __init__(self):
         self.server_id = str(uuid.uuid4())[:12]
         self.start_time = datetime.utcnow()
 
-        # Flask app - use config.BASE_PATH for bundled resources
+        # Flask app
         template_dir = os.path.join(config.BASE_PATH, "templates")
         static_dir = os.path.join(config.BASE_PATH, "static")
         self.app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
         self.app.secret_key = config.SECRET_KEY
-        self.app.config["MAX_CONTENT_LENGTH"] = None  # unlimited file upload
+        self.app.config["MAX_CONTENT_LENGTH"] = None  # unlimited
         CORS(self.app)
 
-        # SocketIO
-        self.socketio = SocketIO(
-            self.app,
-            cors_allowed_origins="*",
-            async_mode="eventlet",
-            max_http_buffer_size=1e300,  # unlimited
-            ping_timeout=60,
-            ping_interval=25,
-        )
-
-        # Network detection
+        # Network detection (includes fiber optic)
         self.net_detector = NetworkDetector()
         self.net_detector.detect_all()
         best = self.net_detector.get_best_interface()
         self.host_ip = best.ip if best else "0.0.0.0"
+        self.is_fiber = self.net_detector.fiber_detected
+
+        # Optimize socket settings for fiber
+        buffer_size = self.net_detector.get_optimal_buffer_size()
+
+        # SocketIO with optimized settings
+        self.socketio = SocketIO(
+            self.app,
+            cors_allowed_origins="*",
+            async_mode="eventlet",
+            max_http_buffer_size=1e300,
+            ping_timeout=120,  # Longer timeout for stability
+            ping_interval=25,
+            logger=False,
+            engineio_logger=False,
+        )
 
         # Mesh networking
         self.mesh = MeshNode(
@@ -81,6 +97,10 @@ class BROServer:
         self.messages = []
         self.file_transfers = []
         self.server_logs = []
+        self.typing_users = {}  # {sid: {username, target, timestamp}}
+        self.offline_messages = {}  # {username: [messages]}
+        self.message_acks = {}  # {msg_id: {delivered: bool, read: bool}}
+        self.upload_chunks = {}  # {upload_id: {chunks, total, filename}}
 
         self._setup_routes()
         self._setup_socket_events()
@@ -98,13 +118,19 @@ class BROServer:
         getattr(logger, level, logger.info)(msg)
 
     def _login_required(self, f):
-        """Decorator for admin-only routes."""
         @wraps(f)
         def wrapper(*args, **kwargs):
             if not session.get("admin_logged_in"):
                 return redirect(url_for("login"))
             return f(*args, **kwargs)
         return wrapper
+
+    def _get_sid_by_username(self, username):
+        """Find SID by username."""
+        for sid, client in self.connected_clients.items():
+            if client.get("username") == username:
+                return sid
+        return None
 
     def _setup_routes(self):
         """Register all HTTP routes."""
@@ -130,7 +156,7 @@ class BROServer:
             session.pop("admin_logged_in", None)
             return redirect(url_for("login"))
 
-        # ---- Admin Control Panel ----
+        # ---- Admin ----
         @self.app.route("/admin")
         @self._login_required
         def admin_dashboard():
@@ -145,6 +171,7 @@ class BROServer:
                 "uptime": int(uptime),
                 "host_ip": self.host_ip,
                 "port": config.SERVER_PORT,
+                "is_fiber": self.is_fiber,
                 "connected_clients": len(self.connected_clients),
                 "clients": list(self.connected_clients.values()),
                 "total_messages": len(self.messages),
@@ -152,6 +179,7 @@ class BROServer:
                 "network": self.net_detector.to_dict_list(),
                 "mesh": self.mesh.get_stats(),
                 "signaling": self.signaling.get_stats(),
+                "fiber_routers": config.FIBER_ROUTER_TYPES,
                 "logs": self.server_logs[-50:],
             })
 
@@ -159,7 +187,12 @@ class BROServer:
         @self._login_required
         def api_network():
             self.net_detector.detect_all()
-            return jsonify({"interfaces": self.net_detector.to_dict_list()})
+            return jsonify({
+                "interfaces": self.net_detector.to_dict_list(),
+                "is_fiber": self.net_detector.fiber_detected,
+                "optimal_mtu": self.net_detector.get_optimal_mtu(),
+                "fiber_interfaces": [i.to_dict() for i in self.net_detector.get_fiber_interfaces()],
+            })
 
         @self.app.route("/api/admin/mesh")
         @self._login_required
@@ -196,12 +229,12 @@ class BROServer:
         def api_messages():
             return jsonify({"messages": self.messages[-200:]})
 
-        # ---- Client Pages ----
+        # ---- Client ----
         @self.app.route("/client")
         def client_page():
             return render_template("client.html")
 
-        # ---- File Upload ----
+        # ---- File Upload (standard) ----
         @self.app.route("/api/upload", methods=["POST"])
         def upload_file():
             if "file" not in request.files:
@@ -221,9 +254,89 @@ class BROServer:
             }
             self.file_transfers.append(file_info)
             self._log(f"File uploaded: {f.filename}")
-            # Notify all clients
             self.socketio.emit("file_shared", file_info)
             return jsonify({"status": "ok", "file": file_info})
+
+        # ---- Chunked/Resumable Upload ----
+        @self.app.route("/api/upload/init", methods=["POST"])
+        def init_chunked_upload():
+            """Initialize a chunked upload session."""
+            data = request.get_json()
+            filename = data.get("filename", "unknown")
+            total_size = data.get("total_size", 0)
+            total_chunks = data.get("total_chunks", 1)
+            upload_id = str(uuid.uuid4())[:12]
+            self.upload_chunks[upload_id] = {
+                "filename": filename,
+                "total_size": total_size,
+                "total_chunks": total_chunks,
+                "received_chunks": set(),
+                "username": data.get("username", "Unknown"),
+                "started_at": datetime.utcnow().isoformat(),
+            }
+            return jsonify({"upload_id": upload_id, "status": "ready"})
+
+        @self.app.route("/api/upload/chunk", methods=["POST"])
+        def upload_chunk():
+            """Upload a single chunk."""
+            upload_id = request.form.get("upload_id")
+            chunk_index = int(request.form.get("chunk_index", 0))
+            if upload_id not in self.upload_chunks:
+                return jsonify({"error": "Invalid upload_id"}), 400
+            if "chunk" not in request.files:
+                return jsonify({"error": "No chunk data"}), 400
+
+            info = self.upload_chunks[upload_id]
+            chunk_dir = os.path.join(config.UPLOAD_FOLDER, f"_chunks_{upload_id}")
+            os.makedirs(chunk_dir, exist_ok=True)
+            chunk_path = os.path.join(chunk_dir, f"chunk_{chunk_index:06d}")
+            request.files["chunk"].save(chunk_path)
+            info["received_chunks"].add(chunk_index)
+
+            if len(info["received_chunks"]) >= info["total_chunks"]:
+                # All chunks received - assemble
+                safe_name = f"{int(time.time())}_{info['filename']}"
+                final_path = os.path.join(config.UPLOAD_FOLDER, safe_name)
+                with open(final_path, "wb") as out:
+                    for i in range(info["total_chunks"]):
+                        cp = os.path.join(chunk_dir, f"chunk_{i:06d}")
+                        with open(cp, "rb") as cf:
+                            out.write(cf.read())
+                # Cleanup chunks
+                import shutil
+                shutil.rmtree(chunk_dir, ignore_errors=True)
+                del self.upload_chunks[upload_id]
+
+                file_info = {
+                    "name": info["filename"],
+                    "saved_as": safe_name,
+                    "size": os.path.getsize(final_path),
+                    "uploaded_by": info["username"],
+                    "uploaded_at": datetime.utcnow().isoformat(),
+                }
+                self.file_transfers.append(file_info)
+                self._log(f"Chunked upload complete: {info['filename']}")
+                self.socketio.emit("file_shared", file_info)
+                return jsonify({"status": "complete", "file": file_info})
+
+            return jsonify({
+                "status": "ok",
+                "received": len(info["received_chunks"]),
+                "total": info["total_chunks"],
+            })
+
+        @self.app.route("/api/upload/status/<upload_id>")
+        def upload_status(upload_id):
+            """Check chunked upload status for resume."""
+            if upload_id not in self.upload_chunks:
+                return jsonify({"error": "Not found"}), 404
+            info = self.upload_chunks[upload_id]
+            return jsonify({
+                "upload_id": upload_id,
+                "filename": info["filename"],
+                "received_chunks": sorted(info["received_chunks"]),
+                "total_chunks": info["total_chunks"],
+            })
 
         @self.app.route("/api/download/<filename>")
         def download_file(filename):
@@ -254,17 +367,26 @@ class BROServer:
             emit("server_info", {
                 "server_id": self.server_id,
                 "ice_servers": config.ICE_SERVERS,
+                "is_fiber": self.is_fiber,
+                "max_file_size": config.MAX_FILE_SIZE,
             })
 
         @self.socketio.on("disconnect")
         def on_disconnect():
             sid = request.sid
             client = self.connected_clients.pop(sid, None)
+            self.typing_users.pop(sid, None)
             name = client.get("username", sid) if client else sid
             self._log(f"Client disconnected: {name}")
-            # Clean up signaling rooms
             self.signaling.handle_disconnect(sid)
             self.socketio.emit("user_offline", {"sid": sid, "username": name})
+            # Broadcast updated user list
+            users = [
+                {"sid": c["sid"], "username": c["username"]}
+                for c in self.connected_clients.values()
+                if c["username"]
+            ]
+            self.socketio.emit("users_online", {"users": users})
 
         @self.socketio.on("register")
         def on_register(data):
@@ -280,32 +402,84 @@ class BROServer:
                 if c["username"]
             ]
             self.socketio.emit("users_online", {"users": users})
+            # Deliver offline messages
+            if username in self.offline_messages:
+                for msg in self.offline_messages.pop(username):
+                    emit("chat_message", msg)
 
         @self.socketio.on("chat_message")
         def on_chat_message(data):
+            msg_id = str(uuid.uuid4())[:10]
             msg = {
+                "id": msg_id,
                 "sender": data.get("sender", "Unknown"),
                 "sender_sid": request.sid,
                 "text": data.get("text", ""),
-                "target": data.get("target"),  # None = broadcast
+                "target": data.get("target"),
                 "timestamp": datetime.utcnow().isoformat(),
             }
             self.messages.append(msg)
             target = data.get("target")
             if target:
-                emit("chat_message", msg, room=target)
-                emit("chat_message", msg)  # echo back
+                # Check if target is online
+                if target in self.connected_clients:
+                    emit("chat_message", msg, room=target)
+                    emit("chat_message", msg)  # echo back
+                else:
+                    # Store for offline delivery by username
+                    target_client = self.connected_clients.get(target, {})
+                    target_name = target_client.get("username")
+                    if target_name:
+                        self.offline_messages.setdefault(target_name, []).append(msg)
+                    emit("chat_message", msg)  # echo back
             else:
                 self.socketio.emit("chat_message", msg)
+            # Send delivery ack
+            emit("message_ack", {"id": msg_id, "status": "delivered"})
+
+        @self.socketio.on("message_read")
+        def on_message_read(data):
+            """Mark message as read."""
+            msg_id = data.get("id")
+            sender_sid = data.get("sender_sid")
+            if sender_sid:
+                self.socketio.emit("message_read_receipt", {
+                    "id": msg_id,
+                    "reader": request.sid,
+                }, room=sender_sid)
+
+        @self.socketio.on("typing")
+        def on_typing(data):
+            """Handle typing indicator."""
+            sid = request.sid
+            target = data.get("target")
+            client = self.connected_clients.get(sid, {})
+            username = client.get("username", "")
+            typing_data = {
+                "sid": sid,
+                "username": username,
+                "is_typing": data.get("is_typing", True),
+            }
+            if target:
+                emit("user_typing", typing_data, room=target)
+            else:
+                emit("user_typing", typing_data, broadcast=True, include_self=False)
 
         @self.socketio.on("file_chunk")
         def on_file_chunk(data):
-            """Handle file transfer via WebSocket chunks."""
             target = data.get("target")
             if target:
                 emit("file_chunk", data, room=target)
             else:
                 emit("file_chunk", data, broadcast=True, include_self=False)
+
+        @self.socketio.on("ping_check")
+        def on_ping_check(data):
+            """Client-server latency check."""
+            emit("pong_check", {
+                "client_time": data.get("time"),
+                "server_time": datetime.utcnow().isoformat(),
+            })
 
     def run(self, host=None, port=None, silent=True):
         """Start the BRO server."""
@@ -327,11 +501,15 @@ class BROServer:
         self.mesh.start()
         self._log(f"Helen WiFi Server starting: {self.server_id}")
         self._log(f"Host IP: {self.host_ip}")
+        self._log(f"Fiber Optic: {'YES' if self.is_fiber else 'No'}")
         self._log(f"Interfaces: {len(self.net_detector.interfaces)}")
         for iface in self.net_detector.interfaces:
-            self._log(f"  {iface.name}: {iface.ip} ({iface.interface_type})")
+            fiber_info = f" [FIBER: {iface.fiber_type}]" if iface.fiber_type else ""
+            speed_info = f" {iface.speed}Mbps" if iface.speed else ""
+            self._log(f"  {iface.name}: {iface.ip} ({iface.interface_type}){speed_info}{fiber_info}")
 
         if not silent:
+            fiber_status = " [FIBER OPTIC]" if self.is_fiber else ""
             print(f"""
 +----------------------------------------------+
 |            Helen WiFi Server                 |
@@ -340,8 +518,12 @@ class BROServer:
 |  Server ID  : {self.server_id:<30}|
 |  Host       : {host}:{port:<27}|
 |  Local IP   : {self.host_ip:<30}|
+|  Connection : {'Fiber Optic' if self.is_fiber else 'Standard':<30}|
 |  Admin Panel: http://{self.host_ip}:{port}/admin{' ' * (17 - len(str(port)))}|
 |  Client     : http://{self.host_ip}:{port}/client{' ' * (16 - len(str(port)))}|
++----------------------------------------------+
+|  Supported Routers: ALL (WiFi/Ethernet/DSL/  |
+|  Fiber/GPON/EPON/XG-PON/XGS-PON/SFP/ONT/ONU)|
 +----------------------------------------------+
 """)
 

@@ -17,155 +17,72 @@
             --orange: #ff9100;
             --red: #ff5252;
             --purple: #b388ff;
+            --fiber: #00ff88;
         }
         body {
             font-family: 'Segoe UI', Tahoma, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
+            background: var(--bg); color: var(--text); min-height: 100vh;
         }
 
         /* Sidebar */
         .sidebar {
-            position: fixed;
-            right: 0;
-            top: 0;
-            width: 240px;
-            height: 100vh;
+            position: fixed; right: 0; top: 0; width: 240px; height: 100vh;
             background: rgba(255,255,255,0.02);
-            border-left: 1px solid var(--border);
-            padding: 20px;
-            z-index: 100;
+            border-left: 1px solid var(--border); padding: 20px; z-index: 100;
         }
-        .sidebar .logo {
-            text-align: center;
-            padding: 20px 0;
-            border-bottom: 1px solid var(--border);
-            margin-bottom: 20px;
-        }
-        .sidebar .logo h2 {
-            color: var(--accent);
-            font-size: 1.5em;
-        }
-        .sidebar .logo small {
-            color: var(--text2);
-            font-size: 0.75em;
-        }
+        .sidebar .logo { text-align: center; padding: 20px 0; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+        .sidebar .logo h2 { color: var(--accent); font-size: 1.5em; }
+        .sidebar .logo small { color: var(--text2); font-size: 0.75em; }
         .nav-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 12px 16px;
-            border-radius: 10px;
-            cursor: pointer;
-            color: var(--text2);
-            transition: all 0.2s;
-            margin-bottom: 4px;
-            font-size: 0.9em;
+            display: flex; align-items: center; gap: 10px;
+            padding: 12px 16px; border-radius: 10px; cursor: pointer;
+            color: var(--text2); transition: all 0.2s; margin-bottom: 4px; font-size: 0.9em;
         }
-        .nav-item:hover, .nav-item.active {
-            background: rgba(0,212,255,0.1);
-            color: var(--accent);
-        }
+        .nav-item:hover, .nav-item.active { background: rgba(0,212,255,0.1); color: var(--accent); }
         .nav-item .icon { font-size: 1.2em; width: 24px; text-align: center; }
 
         /* Main */
-        .main {
-            margin-right: 240px;
-            padding: 30px;
-        }
-
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-        }
+        .main { margin-right: 240px; padding: 30px; }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; }
         .header h1 { font-size: 1.5em; }
         .header .server-id {
-            background: rgba(0,212,255,0.1);
-            color: var(--accent);
-            padding: 6px 16px;
-            border-radius: 20px;
-            font-size: 0.8em;
-            font-family: monospace;
+            background: rgba(0,212,255,0.1); color: var(--accent);
+            padding: 6px 16px; border-radius: 20px; font-size: 0.8em; font-family: monospace;
         }
 
-        /* Stats Cards */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 16px;
-            margin-bottom: 30px;
-        }
+        /* Stats */
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; margin-bottom: 30px; }
         .stat-card {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 20px;
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 14px; padding: 20px;
         }
-        .stat-card .label {
-            color: var(--text2);
-            font-size: 0.8em;
-            margin-bottom: 8px;
-        }
-        .stat-card .value {
-            font-size: 1.8em;
-            font-weight: bold;
-        }
-        .stat-card .sub {
-            color: var(--text2);
-            font-size: 0.75em;
-            margin-top: 4px;
-        }
+        .stat-card .label { color: var(--text2); font-size: 0.8em; margin-bottom: 8px; }
+        .stat-card .value { font-size: 1.8em; font-weight: bold; }
+        .stat-card .sub { color: var(--text2); font-size: 0.75em; margin-top: 4px; }
         .stat-card.accent .value { color: var(--accent); }
         .stat-card.green .value { color: var(--green); }
         .stat-card.orange .value { color: var(--orange); }
         .stat-card.purple .value { color: var(--purple); }
+        .stat-card.fiber .value { color: var(--fiber); }
 
         /* Panels */
         .panel {
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 14px;
-            padding: 24px;
-            margin-bottom: 20px;
+            background: var(--card); border: 1px solid var(--border);
+            border-radius: 14px; padding: 24px; margin-bottom: 20px;
         }
-        .panel-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 16px;
-        }
-        .panel-title {
-            font-size: 1.1em;
-            font-weight: 600;
-        }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+        .panel-title { font-size: 1.1em; font-weight: 600; }
 
         /* Tables */
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-        th, td {
-            padding: 10px 14px;
-            text-align: right;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.85em;
-        }
-        th {
-            color: var(--text2);
-            font-weight: 500;
-        }
-        .badge {
-            display: inline-block;
-            padding: 3px 10px;
-            border-radius: 12px;
-            font-size: 0.75em;
-        }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px 14px; text-align: right; border-bottom: 1px solid var(--border); font-size: 0.85em; }
+        th { color: var(--text2); font-weight: 500; }
+        .badge { display: inline-block; padding: 3px 10px; border-radius: 12px; font-size: 0.75em; }
         .badge-green { background: rgba(0,230,118,0.15); color: var(--green); }
         .badge-blue { background: rgba(0,212,255,0.15); color: var(--accent); }
         .badge-orange { background: rgba(255,145,0,0.15); color: var(--orange); }
+        .badge-fiber { background: rgba(0,255,136,0.15); color: var(--fiber); }
+        .badge-red { background: rgba(255,82,82,0.15); color: var(--red); }
 
         /* Sections */
         .section { display: none; }
@@ -173,15 +90,10 @@
 
         /* Log viewer */
         .log-viewer {
-            background: rgba(0,0,0,0.3);
-            border-radius: 8px;
-            padding: 16px;
-            max-height: 400px;
-            overflow-y: auto;
-            font-family: 'Consolas', monospace;
-            font-size: 0.8em;
-            direction: ltr;
-            text-align: left;
+            background: rgba(0,0,0,0.3); border-radius: 8px; padding: 16px;
+            max-height: 400px; overflow-y: auto;
+            font-family: 'Consolas', monospace; font-size: 0.8em;
+            direction: ltr; text-align: left;
         }
         .log-entry { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
         .log-time { color: var(--text2); }
@@ -189,50 +101,47 @@
         .log-error { color: var(--red); }
         .log-warning { color: var(--orange); }
 
-        /* Mesh connect form */
-        .mesh-form {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 16px;
-        }
+        /* Mesh form */
+        .mesh-form { display: flex; gap: 10px; margin-bottom: 16px; }
         .mesh-form input {
-            flex: 1;
-            padding: 10px 14px;
+            flex: 1; padding: 10px 14px;
             background: rgba(255,255,255,0.05);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: white;
-            font-size: 0.9em;
-            outline: none;
+            border: 1px solid var(--border); border-radius: 8px;
+            color: white; font-size: 0.9em; outline: none;
         }
         .mesh-form input:focus { border-color: var(--accent); }
         .btn-sm {
             padding: 10px 20px;
             background: linear-gradient(135deg, #00d4ff, #0066ff);
-            border: none;
-            border-radius: 8px;
-            color: white;
-            cursor: pointer;
-            font-size: 0.9em;
+            border: none; border-radius: 8px; color: white; cursor: pointer; font-size: 0.9em;
         }
         .btn-sm:hover { opacity: 0.9; }
 
-        .dot-online {
-            width: 8px; height: 8px;
-            background: var(--green);
-            border-radius: 50%;
-            display: inline-block;
-            margin-left: 6px;
-        }
-        .dot-offline {
-            width: 8px; height: 8px;
-            background: var(--red);
-            border-radius: 50%;
-            display: inline-block;
-            margin-left: 6px;
-        }
+        .dot-online { width: 8px; height: 8px; background: var(--green); border-radius: 50%; display: inline-block; margin-left: 6px; }
+        .dot-offline { width: 8px; height: 8px; background: var(--red); border-radius: 50%; display: inline-block; margin-left: 6px; }
 
         .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+
+        /* Fiber info */
+        .fiber-banner {
+            background: linear-gradient(135deg, rgba(0,255,136,0.1), rgba(0,212,255,0.1));
+            border: 1px solid rgba(0,255,136,0.2);
+            border-radius: 14px; padding: 16px 20px; margin-bottom: 20px;
+            display: none;
+        }
+        .fiber-banner.active { display: flex; align-items: center; gap: 12px; }
+        .fiber-banner .icon { font-size: 1.5em; }
+        .fiber-banner .text { font-size: 0.9em; }
+        .fiber-banner .text strong { color: var(--fiber); }
+
+        /* Router types grid */
+        .router-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; }
+        .router-card {
+            background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+            border-radius: 10px; padding: 12px 16px; font-size: 0.85em;
+        }
+        .router-card .name { color: var(--accent); font-weight: 600; margin-bottom: 4px; }
+        .router-card .detail { color: var(--text2); font-size: 0.8em; }
 
         @media (max-width: 900px) {
             .sidebar { width: 60px; padding: 10px; }
@@ -267,6 +176,9 @@
         <div class="nav-item" onclick="showSection('files')">
             <span class="icon">&#128193;</span><span>الملفات</span>
         </div>
+        <div class="nav-item" onclick="showSection('routers')">
+            <span class="icon">&#128268;</span><span>الراوترات</span>
+        </div>
         <div class="nav-item" onclick="showSection('logs')">
             <span class="icon">&#128196;</span><span>السجلات</span>
         </div>
@@ -278,14 +190,22 @@
         </div>
     </div>
 
-    <!-- Main Content -->
+    <!-- Main -->
     <div class="main">
         <div class="header">
             <h1>لوحة التحكم</h1>
             <span class="server-id" id="serverId">...</span>
         </div>
 
-        <!-- Dashboard Section -->
+        <!-- Fiber Banner -->
+        <div class="fiber-banner" id="fiberBanner">
+            <span class="icon">&#128268;</span>
+            <div class="text">
+                <strong>اتصال فايبر مكتشف!</strong> - السيرفر يعمل بأقصى سرعة على شبكة الألياف الضوئية
+            </div>
+        </div>
+
+        <!-- Dashboard -->
         <div class="section active" id="section-dashboard">
             <div class="stats-grid">
                 <div class="stat-card accent">
@@ -308,6 +228,11 @@
                     <div class="value" id="stat-files">0</div>
                     <div class="sub">ملفات مرسلة</div>
                 </div>
+                <div class="stat-card fiber" id="stat-fiber-card" style="display:none;">
+                    <div class="label">فايبر</div>
+                    <div class="value">&#10003;</div>
+                    <div class="sub">الياف ضوئية</div>
+                </div>
             </div>
 
             <div class="stats-grid">
@@ -324,25 +249,21 @@
                     <div class="value" id="stat-port" style="font-size:1.2em;">--</div>
                 </div>
                 <div class="stat-card">
-                    <div class="label">الغرف النشطة</div>
+                    <div class="label">الغرف / المكالمات</div>
                     <div class="value" id="stat-rooms">0</div>
                 </div>
             </div>
 
             <div class="two-col">
                 <div class="panel">
-                    <div class="panel-header">
-                        <span class="panel-title">آخر العملاء</span>
-                    </div>
+                    <div class="panel-header"><span class="panel-title">آخر العملاء</span></div>
                     <table>
                         <thead><tr><th>المستخدم</th><th>IP</th><th>الحالة</th></tr></thead>
                         <tbody id="recent-clients"></tbody>
                     </table>
                 </div>
                 <div class="panel">
-                    <div class="panel-header">
-                        <span class="panel-title">واجهات الشبكة</span>
-                    </div>
+                    <div class="panel-header"><span class="panel-title">واجهات الشبكة</span></div>
                     <table>
                         <thead><tr><th>الواجهة</th><th>IP</th><th>النوع</th></tr></thead>
                         <tbody id="network-brief"></tbody>
@@ -351,7 +272,7 @@
             </div>
         </div>
 
-        <!-- Clients Section -->
+        <!-- Clients -->
         <div class="section" id="section-clients">
             <div class="panel">
                 <div class="panel-header">
@@ -365,7 +286,7 @@
             </div>
         </div>
 
-        <!-- Network Section -->
+        <!-- Network -->
         <div class="section" id="section-network">
             <div class="panel">
                 <div class="panel-header">
@@ -373,36 +294,32 @@
                     <button class="btn-sm" onclick="refreshNetwork()">تحديث</button>
                 </div>
                 <table>
-                    <thead><tr><th>الاسم</th><th>IP</th><th>Netmask</th><th>MAC</th><th>النوع</th><th>Gateway</th><th>الحالة</th></tr></thead>
+                    <thead><tr><th>الاسم</th><th>IP</th><th>Netmask</th><th>MAC</th><th>النوع</th><th>السرعة</th><th>Gateway</th><th>فايبر</th><th>الحالة</th></tr></thead>
                     <tbody id="network-table"></tbody>
                 </table>
             </div>
         </div>
 
-        <!-- Mesh Section -->
+        <!-- Mesh -->
         <div class="section" id="section-mesh">
             <div class="panel">
-                <div class="panel-header">
-                    <span class="panel-title">شبكة Mesh</span>
-                </div>
+                <div class="panel-header"><span class="panel-title">شبكة Mesh</span></div>
                 <div class="mesh-form">
                     <input type="text" id="mesh-host" placeholder="IP الخادم">
                     <input type="number" id="mesh-port" placeholder="المنفذ" value="8401" style="max-width:100px;">
                     <button class="btn-sm" onclick="connectMesh()">اتصال</button>
                 </div>
                 <table>
-                    <thead><tr><th>معرف الخادم</th><th>IP</th><th>المنفذ</th><th>آخر ظهور</th><th>الأقران</th></tr></thead>
+                    <thead><tr><th>معرف الخادم</th><th>IP</th><th>المنفذ</th><th>النقل</th><th>آخر ظهور</th><th>الأقران</th></tr></thead>
                     <tbody id="mesh-table"></tbody>
                 </table>
             </div>
         </div>
 
-        <!-- Messages Section -->
+        <!-- Messages -->
         <div class="section" id="section-messages">
             <div class="panel">
-                <div class="panel-header">
-                    <span class="panel-title">سجل الرسائل</span>
-                </div>
+                <div class="panel-header"><span class="panel-title">سجل الرسائل</span></div>
                 <table>
                     <thead><tr><th>المرسل</th><th>الرسالة</th><th>الوقت</th></tr></thead>
                     <tbody id="messages-table"></tbody>
@@ -410,12 +327,10 @@
             </div>
         </div>
 
-        <!-- Files Section -->
+        <!-- Files -->
         <div class="section" id="section-files">
             <div class="panel">
-                <div class="panel-header">
-                    <span class="panel-title">الملفات المشاركة</span>
-                </div>
+                <div class="panel-header"><span class="panel-title">الملفات المشاركة</span></div>
                 <table>
                     <thead><tr><th>اسم الملف</th><th>الحجم</th><th>رافع الملف</th><th>التاريخ</th><th>تحميل</th></tr></thead>
                     <tbody id="files-table"></tbody>
@@ -423,7 +338,25 @@
             </div>
         </div>
 
-        <!-- Logs Section -->
+        <!-- Routers (Supported) -->
+        <div class="section" id="section-routers">
+            <div class="panel">
+                <div class="panel-header"><span class="panel-title">الراوترات والكوابل المدعومة</span></div>
+                <p style="color:var(--text2); margin-bottom:16px; font-size:0.9em;">
+                    السيرفر يعمل على جميع أنواع الراوترات والكوابل بدون مشاكل
+                </p>
+                <div class="router-grid" id="router-grid"></div>
+            </div>
+            <div class="panel">
+                <div class="panel-header"><span class="panel-title">أنواع الاتصال المدعومة</span></div>
+                <table>
+                    <thead><tr><th>النوع</th><th>الوصف</th><th>أقصى سرعة</th><th>MTU</th></tr></thead>
+                    <tbody id="fiber-types-table"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Logs -->
         <div class="section" id="section-logs">
             <div class="panel">
                 <div class="panel-header">
@@ -437,14 +370,14 @@
 
     <script>
         let currentSection = 'dashboard';
+        const sectionNames = ['dashboard','clients','network','mesh','messages','files','routers','logs'];
 
         function showSection(name) {
             document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
             document.getElementById('section-' + name).classList.add('active');
-            document.querySelectorAll('.nav-item')[
-                ['dashboard','clients','network','mesh','messages','files','logs'].indexOf(name)
-            ].classList.add('active');
+            const idx = sectionNames.indexOf(name);
+            if (idx >= 0) document.querySelectorAll('.nav-item')[idx].classList.add('active');
             currentSection = name;
         }
 
@@ -452,19 +385,26 @@
             const h = Math.floor(seconds / 3600);
             const m = Math.floor((seconds % 3600) / 60);
             const s = seconds % 60;
-            return `${h}h ${m}m ${s}s`;
+            return h + 'h ' + m + 'm ' + s + 's';
         }
 
         function formatSize(bytes) {
             if (bytes < 1024) return bytes + ' B';
             if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-            return (bytes / 1048576).toFixed(1) + ' MB';
+            if (bytes < 1073741824) return (bytes / 1048576).toFixed(1) + ' MB';
+            return (bytes / 1073741824).toFixed(2) + ' GB';
         }
 
         function formatTime(iso) {
             if (!iso) return '--';
             const d = new Date(iso + 'Z');
             return d.toLocaleTimeString('ar-SA');
+        }
+
+        function escapeHtml(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
         }
 
         async function refreshData() {
@@ -480,81 +420,98 @@
                 document.getElementById('stat-uptime').textContent = formatUptime(data.uptime);
                 document.getElementById('stat-ip').textContent = data.host_ip;
                 document.getElementById('stat-port').textContent = data.port;
-                document.getElementById('stat-rooms').textContent = data.signaling.active_rooms;
+                document.getElementById('stat-rooms').textContent =
+                    data.signaling.active_rooms + ' / ' + data.signaling.active_calls;
                 document.getElementById('client-count-badge').textContent = data.connected_clients;
 
+                // Fiber detection
+                if (data.is_fiber) {
+                    document.getElementById('fiberBanner').classList.add('active');
+                    document.getElementById('stat-fiber-card').style.display = 'block';
+                }
+
                 // Recent clients
-                const rc = document.getElementById('recent-clients');
-                rc.innerHTML = data.clients.slice(-5).map(c => `
-                    <tr>
-                        <td>${c.username || c.sid.slice(0,8)}</td>
-                        <td style="direction:ltr">${c.ip || '--'}</td>
-                        <td><span class="dot-online"></span> متصل</td>
-                    </tr>
-                `).join('');
+                document.getElementById('recent-clients').innerHTML = data.clients.slice(-5).map(c =>
+                    '<tr><td>' + escapeHtml(c.username || c.sid.slice(0,8)) + '</td>' +
+                    '<td style="direction:ltr">' + (c.ip || '--') + '</td>' +
+                    '<td><span class="dot-online"></span> متصل</td></tr>'
+                ).join('');
 
                 // Network brief
-                const nb = document.getElementById('network-brief');
-                nb.innerHTML = data.network.map(n => `
-                    <tr>
-                        <td>${n.name}</td>
-                        <td style="direction:ltr">${n.ip}</td>
-                        <td><span class="badge badge-blue">${n.type}</span></td>
-                    </tr>
-                `).join('');
+                document.getElementById('network-brief').innerHTML = data.network.map(n =>
+                    '<tr><td>' + escapeHtml(n.name) + '</td>' +
+                    '<td style="direction:ltr">' + n.ip + '</td>' +
+                    '<td><span class="badge ' + (n.is_fiber ? 'badge-fiber' : 'badge-blue') + '">' +
+                    escapeHtml(n.type) + '</span></td></tr>'
+                ).join('');
 
-                // Full clients table
-                const ct = document.getElementById('clients-table');
-                ct.innerHTML = data.clients.map(c => `
-                    <tr>
-                        <td style="direction:ltr; font-family:monospace; font-size:0.8em;">${c.sid}</td>
-                        <td>${c.username || '--'}</td>
-                        <td style="direction:ltr">${c.ip || '--'}</td>
-                        <td>${formatTime(c.connected_at)}</td>
-                        <td><span class="badge badge-green">متصل</span></td>
-                    </tr>
-                `).join('');
+                // Full clients
+                document.getElementById('clients-table').innerHTML = data.clients.map(c =>
+                    '<tr><td style="direction:ltr;font-family:monospace;font-size:0.8em;">' + c.sid + '</td>' +
+                    '<td>' + escapeHtml(c.username || '--') + '</td>' +
+                    '<td style="direction:ltr">' + (c.ip || '--') + '</td>' +
+                    '<td>' + formatTime(c.connected_at) + '</td>' +
+                    '<td><span class="badge badge-green">متصل</span></td></tr>'
+                ).join('');
 
-                // Network table
-                const nt = document.getElementById('network-table');
-                nt.innerHTML = data.network.map(n => `
-                    <tr>
-                        <td>${n.name}</td>
-                        <td style="direction:ltr">${n.ip}</td>
-                        <td style="direction:ltr">${n.netmask}</td>
-                        <td style="direction:ltr; font-size:0.8em;">${n.mac || '--'}</td>
-                        <td><span class="badge badge-blue">${n.type}</span></td>
-                        <td style="direction:ltr">${n.gateway || '--'}</td>
-                        <td>${n.active ? '<span class="badge badge-green">فعال</span>' : '<span class="badge badge-orange">غير فعال</span>'}</td>
-                    </tr>
-                `).join('');
+                // Network table (full)
+                document.getElementById('network-table').innerHTML = data.network.map(n =>
+                    '<tr><td>' + escapeHtml(n.name) + '</td>' +
+                    '<td style="direction:ltr">' + n.ip + '</td>' +
+                    '<td style="direction:ltr">' + (n.netmask || '--') + '</td>' +
+                    '<td style="direction:ltr;font-size:0.8em;">' + (n.mac || '--') + '</td>' +
+                    '<td><span class="badge ' + (n.is_fiber ? 'badge-fiber' : 'badge-blue') + '">' +
+                    escapeHtml(n.type) + '</span></td>' +
+                    '<td style="direction:ltr">' + (n.speed ? n.speed + ' Mbps' : '--') + '</td>' +
+                    '<td style="direction:ltr">' + (n.gateway || '--') + '</td>' +
+                    '<td>' + (n.is_fiber ? '<span class="badge badge-fiber">فايبر</span>' : '--') +
+                    (n.fiber_type ? ' <small>' + escapeHtml(n.fiber_type) + '</small>' : '') + '</td>' +
+                    '<td>' + (n.active ? '<span class="badge badge-green">فعال</span>' : '<span class="badge badge-orange">غير فعال</span>') + '</td></tr>'
+                ).join('');
 
-                // Mesh table
+                // Mesh
                 const mt = document.getElementById('mesh-table');
                 const peers = data.mesh.peers || [];
                 if (peers.length === 0) {
-                    mt.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text2);">لا توجد خوادم متصلة</td></tr>';
+                    mt.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--text2);">لا توجد خوادم متصلة</td></tr>';
                 }
 
-                // Messages table
-                const msgT = document.getElementById('messages-table');
-                const msgs = data.logs.filter(l => l.message.includes('message') || l.message.includes('chat'));
-                // Use actual messages endpoint
+                // Messages
                 const msgRes = await fetch('/api/admin/messages');
                 const msgData = await msgRes.json();
-                msgT.innerHTML = (msgData.messages || []).slice(-50).reverse().map(m => `
-                    <tr>
-                        <td>${m.sender}</td>
-                        <td>${m.text}</td>
-                        <td>${formatTime(m.timestamp)}</td>
-                    </tr>
-                `).join('');
+                document.getElementById('messages-table').innerHTML =
+                    (msgData.messages || []).slice(-50).reverse().map(m =>
+                        '<tr><td>' + escapeHtml(m.sender) + '</td>' +
+                        '<td>' + escapeHtml(m.text) + '</td>' +
+                        '<td>' + formatTime(m.timestamp) + '</td></tr>'
+                    ).join('');
+
+                // Fiber router types
+                if (data.fiber_routers) {
+                    const grid = document.getElementById('router-grid');
+                    grid.innerHTML = Object.entries(data.fiber_routers).map(([key, info]) =>
+                        '<div class="router-card">' +
+                        '<div class="name">' + key + '</div>' +
+                        '<div class="detail">' + escapeHtml(info.name) + '</div>' +
+                        '<div class="detail">السرعة: ' + info.max_speed + ' | MTU: ' + info.mtu + '</div>' +
+                        '</div>'
+                    ).join('');
+
+                    document.getElementById('fiber-types-table').innerHTML =
+                        Object.entries(data.fiber_routers).map(([key, info]) =>
+                            '<tr><td><span class="badge badge-fiber">' + key + '</span></td>' +
+                            '<td>' + escapeHtml(info.name) + '</td>' +
+                            '<td style="direction:ltr">' + info.max_speed + '</td>' +
+                            '<td style="direction:ltr">' + info.mtu + '</td></tr>'
+                        ).join('');
+                }
 
                 // Logs
                 const lv = document.getElementById('log-viewer');
                 lv.innerHTML = data.logs.map(l => {
                     const cls = l.level === 'error' ? 'log-error' : l.level === 'warning' ? 'log-warning' : 'log-info';
-                    return `<div class="log-entry"><span class="log-time">${l.time}</span> <span class="${cls}">[${l.level.toUpperCase()}]</span> ${l.message}</div>`;
+                    return '<div class="log-entry"><span class="log-time">' + l.time + '</span> ' +
+                           '<span class="' + cls + '">[' + l.level.toUpperCase() + ']</span> ' + escapeHtml(l.message) + '</div>';
                 }).join('');
                 lv.scrollTop = lv.scrollHeight;
 
@@ -564,7 +521,7 @@
         }
 
         async function refreshNetwork() {
-            const res = await fetch('/api/admin/network');
+            await fetch('/api/admin/network');
             refreshData();
         }
 
@@ -586,7 +543,6 @@
             }
         }
 
-        // Auto refresh
         refreshData();
         setInterval(refreshData, 3000);
     </script>
