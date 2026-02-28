@@ -48,6 +48,7 @@ class BROServer:
         static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
         self.app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
         self.app.secret_key = config.SECRET_KEY
+        self.app.config["MAX_CONTENT_LENGTH"] = None  # unlimited file upload
         CORS(self.app)
 
         # SocketIO
@@ -55,7 +56,7 @@ class BROServer:
             self.app,
             cors_allowed_origins="*",
             async_mode="eventlet",
-            max_http_buffer_size=config.MAX_FILE_SIZE,
+            max_http_buffer_size=1e300,  # unlimited
             ping_timeout=60,
             ping_interval=25,
         )
@@ -261,6 +262,8 @@ class BROServer:
             client = self.connected_clients.pop(sid, None)
             name = client.get("username", sid) if client else sid
             self._log(f"Client disconnected: {name}")
+            # Clean up signaling rooms
+            self.signaling.handle_disconnect(sid)
             self.socketio.emit("user_offline", {"sid": sid, "username": name})
 
         @self.socketio.on("register")

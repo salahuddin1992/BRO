@@ -290,6 +290,35 @@
         }
         .file-btn:hover { background: rgba(255,255,255,0.05); color: var(--accent); }
 
+        /* Upload progress */
+        .upload-progress {
+            display: none;
+            padding: 8px 20px;
+            border-top: 1px solid var(--border);
+        }
+        .upload-progress.active { display: block; }
+        .progress-bar {
+            width: 100%;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00d4ff, #0066ff);
+            width: 0%;
+            transition: width 0.2s;
+            border-radius: 3px;
+        }
+        .progress-text {
+            font-size: 0.75em;
+            color: var(--text2);
+            margin-top: 4px;
+            display: flex;
+            justify-content: space-between;
+        }
+
         /* Right panel - Info */
         .info-panel {
             background: rgba(255,255,255,0.02);
@@ -409,6 +438,10 @@
 
             <div class="chat-area">
                 <div class="messages-container" id="messagesContainer"></div>
+                <div class="upload-progress" id="uploadProgress">
+                    <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+                    <div class="progress-text"><span id="progressText">جاري الرفع...</span><span id="progressPercent">0%</span></div>
+                </div>
                 <div class="input-area">
                     <input type="file" id="fileInput" style="display:none" onchange="sendFile()">
                     <button class="file-btn" onclick="document.getElementById('fileInput').click()">&#128206;</button>
@@ -443,6 +476,7 @@
         let localStream, peerConnection, incomingCallData;
         let messageCount = 0, fileCount = 0;
         let micEnabled = true, camEnabled = true;
+        let currentCallTarget = null; // track who we're in a call with
 
         const iceConfig = { iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
@@ -543,7 +577,7 @@
             const el = document.getElementById('usersList');
             el.innerHTML = users.filter(u => u.username !== username).map(u => `
                 <div class="user-item ${selectedUser === u.sid ? 'selected' : ''}"
-                     onclick="selectUser('${u.sid}', '${u.username}')">
+                     onclick="selectUser('${u.sid}', '${u.username}', this)">
                     <div class="user-avatar">${u.username[0].toUpperCase()}</div>
                     <div>
                         <div class="user-name">${u.username}</div>
@@ -553,13 +587,13 @@
             `).join('');
         }
 
-        function selectUser(sid, name) {
+        function selectUser(sid, name, el) {
             selectedUser = selectedUser === sid ? null : sid;
             document.getElementById('chatTarget').textContent =
                 selectedUser ? 'محادثة مع ' + name : 'غرفة عامة';
-            document.querySelectorAll('.user-item').forEach(el => el.classList.remove('selected'));
-            if (selectedUser) {
-                event.currentTarget.classList.add('selected');
+            document.querySelectorAll('.user-item').forEach(e => e.classList.remove('selected'));
+            if (selectedUser && el) {
+                el.classList.add('selected');
             }
         }
 
@@ -620,20 +654,52 @@
             el.prepend(div);
         }
 
-        async function sendFile() {
+        function sendFile() {
             const input = document.getElementById('fileInput');
             if (!input.files.length) return;
             const file = input.files[0];
             const form = new FormData();
             form.append('file', file);
             form.append('username', username);
-            try {
-                const res = await fetch('/api/upload', { method: 'POST', body: form });
-                const data = await res.json();
-                if (data.error) addSystemMessage('خطأ: ' + data.error);
-            } catch (e) {
-                addSystemMessage('فشل رفع الملف');
-            }
+
+            const progressEl = document.getElementById('uploadProgress');
+            const fillEl = document.getElementById('progressFill');
+            const textEl = document.getElementById('progressText');
+            const percentEl = document.getElementById('progressPercent');
+
+            progressEl.classList.add('active');
+            textEl.textContent = file.name;
+            fillEl.style.width = '0%';
+            percentEl.textContent = '0%';
+
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/api/upload');
+
+            xhr.upload.onprogress = (e) => {
+                if (e.lengthComputable) {
+                    const pct = Math.round((e.loaded / e.total) * 100);
+                    fillEl.style.width = pct + '%';
+                    percentEl.textContent = pct + '%';
+                    textEl.textContent = file.name + ' (' + formatSize(e.loaded) + ' / ' + formatSize(e.total) + ')';
+                }
+            };
+
+            xhr.onload = () => {
+                progressEl.classList.remove('active');
+                if (xhr.status === 200) {
+                    const data = JSON.parse(xhr.responseText);
+                    if (data.error) addSystemMessage('خطأ: ' + data.error);
+                } else {
+                    addSystemMessage('فشل رفع الملف');
+                }
+            };
+
+            xhr.onerror = () => {
+                progressEl.classList.remove('active');
+                addSystemMessage('فشل رفع الملف - خطأ بالشبكة');
+            };
+
+            xhr.send(form);
             input.value = '';
         }
 
@@ -644,7 +710,7 @@
                 return;
             }
             const constraints = type === 'video'
-                ? { audio: true, video: true }
+                ? { audio: true, video: { width: { ideal: 4096 }, height: { ideal: 2160 }, frameRate: { ideal: 60 } } }
                 : { audio: true, video: false };
             try {
                 localStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -654,6 +720,7 @@
                 }
                 document.getElementById('endCallBtn').style.display = 'flex';
 
+                currentCallTarget = selectedUser;
                 socket.emit('call_request', {
                     target: selectedUser,
                     sender_name: username,
@@ -668,7 +735,7 @@
             document.getElementById('callOverlay').classList.remove('active');
             const type = incomingCallData.call_type;
             const constraints = type === 'video'
-                ? { audio: true, video: true }
+                ? { audio: true, video: { width: { ideal: 4096 }, height: { ideal: 2160 }, frameRate: { ideal: 60 } } }
                 : { audio: true, video: false };
             try {
                 localStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -678,6 +745,7 @@
                 }
                 document.getElementById('endCallBtn').style.display = 'flex';
 
+                currentCallTarget = incomingCallData.sender;
                 socket.emit('call_accept', {
                     target: incomingCallData.sender,
                     room_id: incomingCallData.room_id,
@@ -699,8 +767,10 @@
             localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
+            // Remove bandwidth limits from SDP for max quality
+            const unlimitedSdp = removeBandwidthLimits(offer.sdp);
             socket.emit('webrtc_offer', {
-                sdp: offer.sdp,
+                sdp: unlimitedSdp,
                 type: offer.type,
                 target: targetSid,
             });
@@ -761,7 +831,7 @@
         }
 
         function endCall() {
-            socket.emit('call_end', { room_id: 'current' });
+            socket.emit('call_end', { target: currentCallTarget });
             cleanupCall();
         }
 
@@ -771,6 +841,7 @@
                 localStream.getTracks().forEach(t => t.stop());
                 localStream = null;
             }
+            currentCallTarget = null;
             document.getElementById('localVideo').srcObject = null;
             document.getElementById('remoteVideo').srcObject = null;
             document.getElementById('videoArea').classList.remove('active');
@@ -793,10 +864,16 @@
             document.getElementById('toggleCam').classList.toggle('active', !camEnabled);
         }
 
+        function removeBandwidthLimits(sdp) {
+            // Remove any b=AS: or b=TIAS: lines that cap bandwidth
+            return sdp.replace(/b=AS:.*\r\n/g, '').replace(/b=TIAS:.*\r\n/g, '');
+        }
+
         function formatSize(b) {
             if (b < 1024) return b + ' B';
             if (b < 1048576) return (b/1024).toFixed(1) + ' KB';
-            return (b/1048576).toFixed(1) + ' MB';
+            if (b < 1073741824) return (b/1048576).toFixed(1) + ' MB';
+            return (b/1073741824).toFixed(2) + ' GB';
         }
 
         function escapeHtml(s) {
