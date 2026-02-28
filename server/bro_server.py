@@ -1,5 +1,5 @@
 """
-BRO Server - Main Server Module
+Helen WiFi Server - Main Server Module
 WiFi/Network Communication Server with WebRTC, Mesh Networking,
 and Full Control Panel.
 """
@@ -29,7 +29,7 @@ from network.detector import NetworkDetector
 from mesh.mesh_node import MeshNode
 from server.signaling import SignalingServer
 
-logger = logging.getLogger("BRO")
+logger = logging.getLogger("HelenWiFi")
 
 
 class BROServer:
@@ -325,7 +325,7 @@ class BROServer:
 
         # Start mesh
         self.mesh.start()
-        self._log(f"BRO Server starting: {self.server_id}")
+        self._log(f"Helen WiFi Server starting: {self.server_id}")
         self._log(f"Host IP: {self.host_ip}")
         self._log(f"Interfaces: {len(self.net_detector.interfaces)}")
         for iface in self.net_detector.interfaces:
@@ -333,15 +333,16 @@ class BROServer:
 
         if not silent:
             print(f"""
-╔══════════════════════════════════════════════╗
-║          BRO Communication Server            ║
-╠══════════════════════════════════════════════╣
-║  Server ID  : {self.server_id:<30}║
-║  Host       : {host}:{port:<27}║
-║  Local IP   : {self.host_ip:<30}║
-║  Admin Panel: http://{self.host_ip}:{port}/admin{' ' * (17 - len(str(port)))}║
-║  Client     : http://{self.host_ip}:{port}/client{' ' * (16 - len(str(port)))}║
-╚══════════════════════════════════════════════╝
++----------------------------------------------+
+|            Helen WiFi Server                 |
+|              هيلين WiFi                      |
++----------------------------------------------+
+|  Server ID  : {self.server_id:<30}|
+|  Host       : {host}:{port:<27}|
+|  Local IP   : {self.host_ip:<30}|
+|  Admin Panel: http://{self.host_ip}:{port}/admin{' ' * (17 - len(str(port)))}|
+|  Client     : http://{self.host_ip}:{port}/client{' ' * (16 - len(str(port)))}|
++----------------------------------------------+
 """)
 
         # Auto-open browser when running as EXE

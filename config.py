@@ -1,5 +1,5 @@
 """
-Global configuration for BRO WiFi Server
+Global configuration for Helen WiFi Server
 """
 import os
 import sys
@@ -57,4 +57,4 @@ SUPPORTED_INTERFACES = [
 
 # Logging
 LOG_LEVEL = os.environ.get("BRO_LOG_LEVEL", "INFO")
-LOG_FILE = os.path.join(RUNTIME_PATH, "bro_server.log")
+LOG_FILE = os.path.join(RUNTIME_PATH, "helen_wifi.log")
