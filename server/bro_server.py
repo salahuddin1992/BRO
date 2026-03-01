@@ -6,16 +6,20 @@ import os
 import sys
 import uuid
 import time
+import hmac
+import hashlib
 import logging
 import threading
 import webbrowser
 from datetime import datetime
 from functools import wraps
+from collections import defaultdict
 
 from flask import (Flask, render_template, request, jsonify,
                    send_from_directory, session, redirect, url_for)
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
+from werkzeug.utils import secure_filename
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
@@ -25,6 +29,14 @@ from server.signaling import SignalingServer
 from database.db import Database
 
 logger = logging.getLogger("HelenWiFi")
+
+ALLOWED_EXTENSIONS = {
+    'txt','pdf','png','jpg','jpeg','gif','bmp','webp','svg',
+    'mp3','mp4','wav','ogg','webm','avi','mkv','mov',
+    'doc','docx','xls','xlsx','ppt','pptx','odt','ods',
+    'zip','rar','7z','tar','gz',
+    'csv','json','xml','html','css','js','py',
+}
 
 
 class BROServer:
@@ -62,11 +74,32 @@ class BROServer:
 
         # State (online sessions)
         self.clients = {}       # {sid: {sid, username, ip, connected_at, status}}
+        self.auth_tokens = {}   # {token: username}  - session persistence
         self.logs = []
         self.typing_state = {}  # {sid: {target, username, timestamp}}
 
+        # Brute force protection: {ip: [timestamps]}
+        self._auth_attempts = defaultdict(list)
+        self._AUTH_MAX = 5          # max attempts
+        self._AUTH_WINDOW = 60      # per 60 seconds
+
         self._setup_routes()
         self._setup_events()
+
+    def _gen_token(self, username):
+        raw = f"{username}:{config.SECRET_KEY}:{uuid.uuid4().hex}"
+        token = hmac.new(config.SECRET_KEY.encode(), raw.encode(), hashlib.sha256).hexdigest()
+        self.auth_tokens[token] = username
+        return token
+
+    def _check_rate(self, ip):
+        now = time.time()
+        attempts = self._auth_attempts[ip]
+        self._auth_attempts[ip] = [t for t in attempts if now - t < self._AUTH_WINDOW]
+        return len(self._auth_attempts[ip]) < self._AUTH_MAX
+
+    def _record_attempt(self, ip):
+        self._auth_attempts[ip].append(time.time())
 
     def _log(self, msg, level="info"):
         self.logs.append({"time": datetime.utcnow().isoformat(), "level": level, "message": msg})
@@ -152,13 +185,18 @@ class BROServer:
             f = request.files.get("file")
             if not f or not f.filename:
                 return jsonify({"error": "No file"}), 400
-            name = f"{int(time.time())}_{f.filename}"
+            original = f.filename
+            safe = secure_filename(original) or "file"
+            ext = safe.rsplit('.', 1)[-1].lower() if '.' in safe else ''
+            if ext and ext not in ALLOWED_EXTENSIONS:
+                return jsonify({"error": f"نوع الملف غير مسموح: .{ext}"}), 400
+            name = f"{int(time.time())}_{safe}"
             f.save(os.path.join(config.UPLOAD_FOLDER, name))
             size = os.path.getsize(os.path.join(config.UPLOAD_FOLDER, name))
             uploaded_by = request.form.get("username", "?")
             room_id = request.form.get("room_id", type=int)
 
-            self.db.save_file(f.filename, name, size, uploaded_by, room_id)
+            self.db.save_file(original, name, size, uploaded_by, room_id)
             info = {
                 "name": f.filename, "saved_as": name,
                 "size": size,
@@ -178,7 +216,13 @@ class BROServer:
 
         @self.app.route("/api/download/<filename>")
         def download(filename):
-            return send_from_directory(config.UPLOAD_FOLDER, filename)
+            safe = secure_filename(filename)
+            if not safe or safe != filename:
+                return jsonify({"error": "اسم ملف غير صالح"}), 400
+            fpath = os.path.join(config.UPLOAD_FOLDER, safe)
+            if not os.path.isfile(fpath):
+                return jsonify({"error": "الملف غير موجود"}), 404
+            return send_from_directory(config.UPLOAD_FOLDER, safe)
 
         @self.app.route("/api/files")
         def list_files():
@@ -264,6 +308,11 @@ class BROServer:
         @self.sio.on("auth_register")
         def on_register(data):
             sid = request.sid
+            ip = request.remote_addr
+            if not self._check_rate(ip):
+                emit("auth_result", {"ok": False, "error": "محاولات كثيرة، انتظر دقيقة"})
+                return
+            self._record_attempt(ip)
             username = (data.get("username") or "").strip()
             password = data.get("password", "")
             if not username or not password:
@@ -272,16 +321,17 @@ class BROServer:
             if len(username) < 2:
                 emit("auth_result", {"ok": False, "error": "الاسم قصير جداً"})
                 return
-            if len(password) < 3:
-                emit("auth_result", {"ok": False, "error": "كلمة المرور قصيرة جداً"})
+            if len(password) < 4:
+                emit("auth_result", {"ok": False, "error": "كلمة المرور قصيرة جداً (4 أحرف على الأقل)"})
                 return
             if self.db.register_user(username, password):
+                token = self._gen_token(username)
                 self.clients[sid]["username"] = username
                 self.clients[sid]["status"] = "online"
                 self.db.set_status(username, "online")
                 self._log(f"Registered: {username}")
                 rooms = self.db.get_user_rooms(username)
-                emit("auth_result", {"ok": True, "username": username, "rooms": rooms})
+                emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token})
                 self._broadcast_users()
             else:
                 emit("auth_result", {"ok": False, "error": "الاسم مستخدم بالفعل"})
@@ -289,21 +339,58 @@ class BROServer:
         @self.sio.on("auth_login")
         def on_login(data):
             sid = request.sid
+            ip = request.remote_addr
+            if not self._check_rate(ip):
+                emit("auth_result", {"ok": False, "error": "محاولات كثيرة، انتظر دقيقة"})
+                return
+            self._record_attempt(ip)
             username = (data.get("username") or "").strip()
             password = data.get("password", "")
             if not username or not password:
                 emit("auth_result", {"ok": False, "error": "الاسم وكلمة المرور مطلوبين"})
                 return
             if self.db.authenticate(username, password):
+                token = self._gen_token(username)
                 self.clients[sid]["username"] = username
                 self.clients[sid]["status"] = "online"
                 self.db.set_status(username, "online")
                 self._log(f"Logged in: {username}")
                 rooms = self.db.get_user_rooms(username)
-                emit("auth_result", {"ok": True, "username": username, "rooms": rooms})
+                emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token})
                 self._broadcast_users()
             else:
+                self._log(f"Failed login: {username} from {ip}", "warning")
                 emit("auth_result", {"ok": False, "error": "اسم المستخدم أو كلمة المرور خطأ"})
+
+        @self.sio.on("auth_token")
+        def on_token_auth(data):
+            sid = request.sid
+            token = data.get("token", "")
+            username = self.auth_tokens.get(token)
+            if username and self.db.user_exists(username):
+                self.clients[sid]["username"] = username
+                self.clients[sid]["status"] = "online"
+                self.db.set_status(username, "online")
+                self._log(f"Token resume: {username}")
+                rooms = self.db.get_user_rooms(username)
+                emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token})
+                self._broadcast_users()
+            else:
+                emit("auth_result", {"ok": False, "error": "الجلسة انتهت، سجل دخول مرة ثانية", "token_expired": True})
+
+        @self.sio.on("auth_logout")
+        def on_logout(data):
+            sid = request.sid
+            token = data.get("token", "")
+            self.auth_tokens.pop(token, None)
+            client = self.clients.get(sid, {})
+            name = client.get("username")
+            if name:
+                self.db.set_offline(name)
+                self.clients[sid]["username"] = None
+                self._log(f"Logged out: {name}")
+                self._broadcast_users()
+            emit("logged_out", {})
 
         # --- Room events ---
         @self.sio.on("create_room")

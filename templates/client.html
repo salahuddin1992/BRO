@@ -237,6 +237,8 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
                 <option value="away">بعيد</option>
                 <option value="busy">مشغول</option>
             </select>
+            <button onclick="doLogout()" style="margin-right:auto;background:none;border:1px solid var(--red);color:var(--red);
+                    border-radius:6px;padding:3px 10px;font-size:.72em;cursor:pointer;" title="تسجيل خروج">خروج</button>
         </div>
 
         <!-- Rooms -->
@@ -318,6 +320,8 @@ let typingTimeout=null, isTyping=false;
 let notifGranted=false;
 
 let iceConfig = {iceServers:[]};
+let authToken = localStorage.getItem('helen_token') || null;
+let savedUser = localStorage.getItem('helen_user') || null;
 
 // --- Notifications ---
 function requestNotif(){
@@ -345,7 +349,16 @@ function doAuth(){
     let user = document.getElementById('authUser').value.trim();
     let pass = document.getElementById('authPass').value;
     if(!user||!pass){ showAuthError('الاسم وكلمة المرور مطلوبين'); return; }
-    initSocket(user, pass);
+    initSocket(user, pass, null);
+}
+
+function doLogout(){
+    if(socket && authToken) socket.emit('auth_logout', {token:authToken});
+    localStorage.removeItem('helen_token');
+    localStorage.removeItem('helen_user');
+    authToken=null; savedUser=null; me=null;
+    if(socket) socket.disconnect();
+    location.reload();
 }
 
 function showAuthError(msg){
@@ -355,6 +368,11 @@ function showAuthError(msg){
 
 document.getElementById('authUser').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('authPass').focus(); });
 document.getElementById('authPass').addEventListener('keydown', e=>{ if(e.key==='Enter') doAuth(); });
+
+// Auto-login with saved token
+if(authToken && savedUser){
+    initSocket(null, null, authToken);
+}
 
 // --- Ringtone (Web Audio API) ---
 let ringCtx, ringOscArr, ringGain, ringTimer;
@@ -413,32 +431,51 @@ function toggleFullscreen(){
 }
 
 // --- Socket ---
-function initSocket(user, pass){
+function initSocket(user, pass, token){
     socket = io({reconnection:true, reconnectionDelay:1000, reconnectionAttempts:Infinity});
 
     socket.on('connect', ()=>{
         document.getElementById('connBar').classList.remove('on');
-        socket.emit(authMode==='register'?'auth_register':'auth_login', {username:user, password:pass});
+        if(authToken){
+            // Resume session with token
+            socket.emit('auth_token', {token:authToken});
+        } else {
+            socket.emit(authMode==='register'?'auth_register':'auth_login', {username:user, password:pass});
+        }
     });
 
     socket.on('disconnect', ()=>{
         document.getElementById('connBar').classList.add('on');
     });
 
+    socket.on('logged_out', ()=>{
+        location.reload();
+    });
+
     socket.on('auth_result', d=>{
         if(d.ok){
             me = d.username;
             myRooms = d.rooms || [];
+            if(d.token){
+                authToken = d.token;
+                localStorage.setItem('helen_token', d.token);
+                localStorage.setItem('helen_user', d.username);
+            }
             document.getElementById('authScreen').classList.add('hide');
             requestNotif();
             renderRooms();
-            // Select general room by default
             if(myRooms.length>0){
                 selectRoom(myRooms[0].id, myRooms[0].name);
             }
         } else {
+            if(d.token_expired){
+                localStorage.removeItem('helen_token');
+                localStorage.removeItem('helen_user');
+                authToken=null; savedUser=null;
+            }
             showAuthError(d.error);
-            socket.disconnect();
+            document.getElementById('authScreen').classList.remove('hide');
+            if(!authToken) socket.disconnect();
         }
     });
 
@@ -546,12 +583,16 @@ function shouldShowTyping(d){
 
 // --- Rooms ---
 function renderRooms(){
-    document.getElementById('roomList').innerHTML = myRooms.map(r=>
-        `<div class="room ${selRoom===r.id?'sel':''}" onclick="selectRoom(${r.id},'${esc(r.name)}')">
-            <div class="room-icon">#</div>
-            <span>${esc(r.name)}</span>
-        </div>`
-    ).join('');
+    let el = document.getElementById('roomList');
+    el.innerHTML = '';
+    myRooms.forEach(r=>{
+        let div = document.createElement('div');
+        div.className = 'room' + (selRoom===r.id?' sel':'');
+        div.innerHTML = '<div class="room-icon">#</div><span></span>';
+        div.querySelector('span').textContent = r.name;
+        div.addEventListener('click', ()=> selectRoom(r.id, r.name));
+        el.appendChild(div);
+    });
 }
 
 function selectRoom(id, name){
@@ -580,12 +621,21 @@ function createRoom(){
 
 // --- Users ---
 function renderUsers(users){
-    document.getElementById('userList').innerHTML = users.filter(u=>u.username!==me).map(u=>
-        `<div class="user ${selUser===u.sid?'sel':''}" onclick="pickUser('${u.sid}','${esc(u.username)}')">
-            <div class="avatar">${u.username[0].toUpperCase()}<span class="status-dot ${u.status||'online'}"></span></div>
-            <div class="uname">${esc(u.username)}${u.remote?'<span class="rbadge">mesh</span>':''}</div>
-        </div>`
-    ).join('');
+    let el = document.getElementById('userList');
+    el.innerHTML = '';
+    users.filter(u=>u.username!==me).forEach(u=>{
+        let div = document.createElement('div');
+        div.className = 'user' + (selUser===u.sid?' sel':'');
+        let statusClass = u.status||'online';
+        let initial = u.username[0].toUpperCase();
+        div.innerHTML = `<div class="avatar"><span class="status-dot ${esc(statusClass)}"></span></div><div class="uname"></div>`;
+        div.querySelector('.avatar').prepend(document.createTextNode(initial));
+        let nameEl = div.querySelector('.uname');
+        nameEl.textContent = u.username;
+        if(u.remote){ let b=document.createElement('span'); b.className='rbadge'; b.textContent='mesh'; nameEl.appendChild(b); }
+        div.addEventListener('click', ()=> pickUser(u.sid, u.username));
+        el.appendChild(div);
+    });
 }
 
 function pickUser(sid,name){
