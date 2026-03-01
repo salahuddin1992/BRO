@@ -738,9 +738,13 @@ function initSocket(user, pass, token){
         if(shouldShowMsg(d)){
             addMsg(d);
         } else if(d.room_id) {
-            // Increment unread
-            unreadCounts[d.room_id] = (unreadCounts[d.room_id]||0) + 1;
+            // Increment unread for rooms
+            unreadCounts['room_'+d.room_id] = (unreadCounts['room_'+d.room_id]||0) + 1;
             renderRooms();
+        } else if(d.target_user === me && d.sender !== me) {
+            // Increment unread for DMs
+            unreadCounts['dm_'+d.sender] = (unreadCounts['dm_'+d.sender]||0) + 1;
+            renderUsers(lastUsers);
         }
         if(d.sender!==me){
             showNotif(d.sender, d.text);
@@ -875,7 +879,7 @@ function renderRooms(){
         div.appendChild(name);
 
         // Unread badge
-        let count = unreadCounts[r.id] || 0;
+        let count = unreadCounts['room_'+r.id] || 0;
         if(count > 0 && selRoom !== r.id){
             let badge = document.createElement('span');
             badge.className = 'unread-badge on';
@@ -890,7 +894,7 @@ function renderRooms(){
 
 function selectRoom(id, name){
     selRoom=id; selUserName=null; selUser=null;
-    unreadCounts[id] = 0; // Clear unread
+    unreadCounts['room_'+id] = 0; // Clear unread
     document.getElementById('chatTarget').textContent = '# '+name;
     document.getElementById('msgs').innerHTML='';
     document.getElementById('typingBar').textContent='';
@@ -994,7 +998,8 @@ function renderUsers(users){
         avatar.className = 'avatar';
         avatar.textContent = initial;
         let dot = document.createElement('span');
-        dot.className = 'status-dot ' + esc(statusClass);
+        let safeStatus = ['online','away','busy','offline'].includes(statusClass) ? statusClass : 'offline';
+        dot.className = 'status-dot ' + safeStatus;
         avatar.appendChild(dot);
         div.appendChild(avatar);
 
@@ -1008,6 +1013,15 @@ function renderUsers(users){
         }
         div.appendChild(nameEl);
 
+        // DM unread badge
+        let dmCount = unreadCounts['dm_'+u.username] || 0;
+        if(dmCount > 0 && selUserName !== u.username){
+            let badge = document.createElement('span');
+            badge.className = 'unread-badge on';
+            badge.textContent = dmCount > 99 ? '99+' : dmCount;
+            div.appendChild(badge);
+        }
+
         div.addEventListener('click', ()=> pickUser(u.sid, u.username));
         el.appendChild(div);
     });
@@ -1015,20 +1029,22 @@ function renderUsers(users){
 
 function pickUser(sid,name){
     if(selUser===sid){ selUser=null; selUserName=null; }
-    else { selUser=sid; selUserName=name; selRoom=null; }
-    document.getElementById('chatTarget').textContent = selUser ? name : (myRooms.length ? '# '+myRooms[0].name : 'عامة');
+    else { selUser=sid; selUserName=name; selRoom=null; unreadCounts['dm_'+name]=0; }
     document.getElementById('msgs').innerHTML='';
     document.getElementById('typingBar').textContent='';
     cancelReply();
-    renderUsers(lastUsers);
-    renderRooms();
     if(selUserName){
+        document.getElementById('chatTarget').textContent = name;
         socket.emit('get_dm_history', {username:selUserName});
     } else if(myRooms.length){
         selRoom = myRooms[0].id;
-        renderRooms();
+        document.getElementById('chatTarget').textContent = '# '+myRooms[0].name;
         socket.emit('get_room_history', {room_id:selRoom});
+    } else {
+        document.getElementById('chatTarget').textContent = 'عامة';
     }
+    renderUsers(lastUsers);
+    renderRooms();
     document.getElementById('sidebarPanel').classList.remove('mob-on');
 }
 
@@ -1166,7 +1182,7 @@ function fileMsg(data){
     d.appendChild(who);
 
     let a = document.createElement('a');
-    a.href = '/api/download/'+encodeURIComponent(data.saved_as);
+    a.href = '/api/download/'+encodeURIComponent(data.saved_as)+'?u='+encodeURIComponent(me);
     a.target = '_blank';
     a.innerHTML = '&#128193; ';
     a.appendChild(document.createTextNode(data.name + ' (' + fmtSize(data.size) + ')'));
@@ -1177,7 +1193,7 @@ function fileMsg(data){
     if(ext && IMAGE_EXTS.includes(ext.toLowerCase())){
         let img = document.createElement('img');
         img.className = 'msg-img';
-        img.src = '/api/download/'+encodeURIComponent(data.saved_as);
+        img.src = '/api/download/'+encodeURIComponent(data.saved_as)+'?u='+encodeURIComponent(me);
         img.addEventListener('click', ()=>{
             document.getElementById('lightboxImg').src = img.src;
             document.getElementById('lightbox').classList.add('on');
@@ -1194,7 +1210,7 @@ function addShared(data){
     let d = document.createElement('div');
     d.style.cssText='padding:6px 8px;border-bottom:1px solid var(--border);font-size:.78em;';
     let a = document.createElement('a');
-    a.href = '/api/download/'+encodeURIComponent(data.saved_as);
+    a.href = '/api/download/'+encodeURIComponent(data.saved_as)+'?u='+encodeURIComponent(me);
     a.target = '_blank';
     a.style.cssText = 'color:var(--accent);text-decoration:none;';
     a.innerHTML = '&#128193; ';

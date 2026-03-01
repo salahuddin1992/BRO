@@ -20,6 +20,7 @@ from flask import (Flask, render_template, request, jsonify,
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
+from werkzeug.security import generate_password_hash, check_password_hash
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
@@ -57,10 +58,12 @@ class BROServer:
         # Database
         self.db = Database(config.DB_PATH)
 
-        # Restore persisted admin password if changed
-        saved_pw = self.db.get_setting("admin_password")
-        if saved_pw:
-            config.ADMIN_PASSWORD = saved_pw
+        # Restore persisted admin password hash if changed
+        saved_hash = self.db.get_setting("admin_password_hash")
+        if saved_hash:
+            self._admin_pw_hash = saved_hash
+        else:
+            self._admin_pw_hash = None  # use plain config.ADMIN_PASSWORD as fallback
 
         # Network
         self.detector = NetworkDetector()
@@ -129,11 +132,16 @@ class BROServer:
             return render_template("client.html")
 
         # --- Auth ---
+        def _check_admin_pw(password):
+            if self._admin_pw_hash:
+                return check_password_hash(self._admin_pw_hash, password)
+            return password == config.ADMIN_PASSWORD
+
         @self.app.route("/login", methods=["GET", "POST"])
         def login():
             if request.method == "POST":
                 if (request.form.get("username") == config.ADMIN_USERNAME and
-                        request.form.get("password") == config.ADMIN_PASSWORD):
+                        _check_admin_pw(request.form.get("password", ""))):
                     session["admin"] = True
                     return redirect(url_for("admin_page"))
                 return render_template("login.html", error="خطأ بالدخول")
@@ -246,6 +254,15 @@ class BROServer:
         @self.app.route("/api/admin/rooms/<int:room_id>", methods=["DELETE"])
         @self._require_admin
         def api_delete_room(room_id):
+            # Clean up files on disk
+            room_files = self.db.get_files_by_room(room_id)
+            for rf in room_files:
+                fpath = os.path.join(config.UPLOAD_FOLDER, rf["saved_as"])
+                if os.path.isfile(fpath):
+                    try:
+                        os.remove(fpath)
+                    except OSError:
+                        pass
             self.db.delete_room(room_id)
             self._log(f"Admin deleted room: {room_id}", "warning")
             return jsonify({"status": "ok"})
@@ -287,18 +304,31 @@ class BROServer:
             data = request.get_json()
             old = data.get("old_password", "")
             new = data.get("new_password", "")
-            if old != config.ADMIN_PASSWORD:
+            if not _check_admin_pw(old):
                 return jsonify({"error": "كلمة المرور الحالية خطأ"}), 400
             if len(new) < 4:
                 return jsonify({"error": "كلمة المرور الجديدة قصيرة"}), 400
-            config.ADMIN_PASSWORD = new
-            self.db.set_setting("admin_password", new)
+            self._admin_pw_hash = generate_password_hash(new)
+            self.db.set_setting("admin_password_hash", self._admin_pw_hash)
             self._log("Admin password changed")
             return jsonify({"status": "ok"})
 
         # --- Files ---
+        def _verify_user(self_ref):
+            """Check if uploader is an authenticated socket user."""
+            uname = request.form.get("username", "")
+            if not uname or uname == "?":
+                return None
+            for cl in self_ref.clients.values():
+                if cl.get("username") == uname:
+                    return uname
+            return None
+
         @self.app.route("/api/upload", methods=["POST"])
         def upload():
+            uploader = _verify_user(self)
+            if not uploader:
+                return jsonify({"error": "غير مصرح"}), 401
             f = request.files.get("file")
             if not f or not f.filename:
                 return jsonify({"error": "No file"}), 400
@@ -310,7 +340,11 @@ class BROServer:
             name = f"{int(time.time())}_{safe}"
             f.save(os.path.join(config.UPLOAD_FOLDER, name))
             size = os.path.getsize(os.path.join(config.UPLOAD_FOLDER, name))
-            uploaded_by = request.form.get("username", "?")
+            # Enforce max 100MB per file
+            if size > 100 * 1024 * 1024:
+                os.remove(os.path.join(config.UPLOAD_FOLDER, name))
+                return jsonify({"error": "حجم الملف كبير جداً (100MB كحد أقصى)"}), 400
+            uploaded_by = uploader
             room_id = request.form.get("room_id", type=int)
             target_user = request.form.get("target_user")
 
@@ -340,6 +374,11 @@ class BROServer:
 
         @self.app.route("/api/download/<filename>")
         def download(filename):
+            # Allow admin or any authenticated socket user
+            if not session.get("admin"):
+                user = request.args.get("u", "")
+                if not user or not any(c.get("username") == user for c in self.clients.values()):
+                    return jsonify({"error": "غير مصرح"}), 401
             safe = secure_filename(filename)
             if not safe or safe != filename:
                 return jsonify({"error": "اسم ملف غير صالح"}), 400
@@ -358,6 +397,10 @@ class BROServer:
             return jsonify({"iceServers": config.ICE_SERVERS})
 
         # --- Mesh Inter-server API ---
+        def _check_mesh_secret():
+            token = request.headers.get("X-Mesh-Secret", "")
+            return hmac.compare_digest(token, config.SECRET_KEY)
+
         @self.app.route("/api/mesh/info")
         def mesh_info():
             return jsonify({
@@ -369,6 +412,8 @@ class BROServer:
 
         @self.app.route("/api/mesh/sync-users", methods=["POST"])
         def mesh_sync():
+            if not _check_mesh_secret():
+                return jsonify({"error": "unauthorized"}), 403
             data = request.get_json()
             server_id = data.get("server_id")
             users = data.get("users", [])
@@ -383,6 +428,8 @@ class BROServer:
 
         @self.app.route("/api/mesh/forward", methods=["POST"])
         def mesh_forward():
+            if not _check_mesh_secret():
+                return jsonify({"error": "unauthorized"}), 403
             data = request.get_json()
             event = data.get("event")
             payload = data.get("data", {})
@@ -393,6 +440,8 @@ class BROServer:
 
         @self.app.route("/api/mesh/broadcast", methods=["POST"])
         def mesh_broadcast_recv():
+            if not _check_mesh_secret():
+                return jsonify({"error": "unauthorized"}), 403
             data = request.get_json()
             event = data.get("event")
             payload = data.get("data", {})
@@ -575,8 +624,14 @@ class BROServer:
 
         @self.sio.on("get_room_history")
         def on_room_history(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
             room_id = data.get("room_id")
-            if room_id:
+            if room_id and username:
+                members = self.db.get_room_members(room_id)
+                if username not in members:
+                    return
                 msgs = self.db.get_messages(room_id=room_id, limit=50)
                 self._attach_reply_info(msgs)
                 files = self.db.get_files(room_id=room_id, limit=20)
@@ -678,7 +733,8 @@ class BROServer:
 
             if target_user:
                 for csid, cl in self.clients.items():
-                    if cl.get("username") == target_user and cl.get("username") != sender:
+                    uname = cl.get("username")
+                    if uname == target_user or (uname == sender and csid != sid):
                         self.sio.emit("chat_message", msg, room=csid)
                 emit("chat_message", msg)
             elif room_id:
@@ -702,10 +758,20 @@ class BROServer:
 
         @self.sio.on("search_messages")
         def on_search(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
             query = (data.get("query") or "").strip()
             room_id = data.get("room_id")
             if query and len(query) >= 2:
-                results = self.db.search_messages(query, room_id=room_id)
+                # Only search in rooms user is a member of, or own DMs
+                if room_id:
+                    members = self.db.get_room_members(room_id)
+                    if username not in members:
+                        return
+                results = self.db.search_messages(query, room_id=room_id, username=username)
                 emit("search_results", {"query": query, "results": results})
 
         @self.sio.on("change_password")
