@@ -779,14 +779,78 @@ function initSocket(user, pass, token){
     });
 
     socket.on('room_history', d=>{
-        document.getElementById('msgs').innerHTML='';
-        (d.messages||[]).forEach(m=> addMsg(m));
+        let msgsEl = document.getElementById('msgs');
+        if(!d.before_id){
+            msgsEl.innerHTML='';
+        }
+        // Remove existing load-more button
+        let oldBtn = msgsEl.querySelector('.load-more-btn');
+        if(oldBtn) oldBtn.remove();
+        // Add load more button at top if has_more
+        let msgs = d.messages||[];
+        if(d.has_more && msgs.length > 0){
+            let loadBtn = document.createElement('div');
+            loadBtn.className = 'load-more-btn';
+            loadBtn.textContent = 'تحميل رسائل أقدم...';
+            loadBtn.style.cssText = 'text-align:center;padding:10px;color:var(--accent);cursor:pointer;font-size:.82em;';
+            let firstId = msgs[0].id;
+            let roomId = d.room_id;
+            loadBtn.addEventListener('click', ()=>{
+                loadBtn.textContent = 'جاري التحميل...';
+                socket.emit('get_room_history', {room_id:roomId, before_id:firstId});
+            });
+            if(d.before_id){
+                msgsEl.insertBefore(loadBtn, msgsEl.firstChild);
+                // Prepend messages after button
+                let ref = loadBtn.nextSibling;
+                msgs.forEach(m=>{ let el = createMsgEl(m); msgsEl.insertBefore(el, ref); });
+            } else {
+                msgsEl.appendChild(loadBtn);
+                msgs.forEach(m=> addMsg(m));
+            }
+        } else if(d.before_id){
+            // Prepend messages
+            let ref = msgsEl.firstChild;
+            msgs.forEach(m=>{ let el = createMsgEl(m); msgsEl.insertBefore(el, ref); });
+        } else {
+            msgs.forEach(m=> addMsg(m));
+        }
         (d.files||[]).forEach(f=> fileMsg(f));
     });
 
     socket.on('dm_history', d=>{
-        document.getElementById('msgs').innerHTML='';
-        (d.messages||[]).forEach(m=> addMsg(m));
+        let msgsEl = document.getElementById('msgs');
+        if(!d.before_id){
+            msgsEl.innerHTML='';
+        }
+        let oldBtn = msgsEl.querySelector('.load-more-btn');
+        if(oldBtn) oldBtn.remove();
+        let msgs = d.messages||[];
+        if(d.has_more && msgs.length > 0){
+            let loadBtn = document.createElement('div');
+            loadBtn.className = 'load-more-btn';
+            loadBtn.textContent = 'تحميل رسائل أقدم...';
+            loadBtn.style.cssText = 'text-align:center;padding:10px;color:var(--accent);cursor:pointer;font-size:.82em;';
+            let firstId = msgs[0].id;
+            let otherUser = d.username;
+            loadBtn.addEventListener('click', ()=>{
+                loadBtn.textContent = 'جاري التحميل...';
+                socket.emit('get_dm_history', {username:otherUser, before_id:firstId});
+            });
+            if(d.before_id){
+                msgsEl.insertBefore(loadBtn, msgsEl.firstChild);
+                let ref = loadBtn.nextSibling;
+                msgs.forEach(m=>{ let el = createMsgEl(m); msgsEl.insertBefore(el, ref); });
+            } else {
+                msgsEl.appendChild(loadBtn);
+                msgs.forEach(m=> addMsg(m));
+            }
+        } else if(d.before_id){
+            let ref = msgsEl.firstChild;
+            msgs.forEach(m=>{ let el = createMsgEl(m); msgsEl.insertBefore(el, ref); });
+        } else {
+            msgs.forEach(m=> addMsg(m));
+        }
     });
 
     socket.on('all_rooms', d=>{
@@ -1092,8 +1156,7 @@ function sendMsg(){
     else if(selRoom) socket.emit('stop_typing', {room_id:selRoom});
 }
 
-function addMsg(d){
-    let c = document.getElementById('msgs');
+function createMsgEl(d){
     let mine = d.sender === me;
     let t = d.timestamp ? new Date(d.timestamp+'Z').toLocaleTimeString('ar-SA') : '';
     let div = document.createElement('div');
@@ -1159,6 +1222,12 @@ function addMsg(d){
     when.textContent = t;
     div.appendChild(when);
 
+    return div;
+}
+
+function addMsg(d){
+    let c = document.getElementById('msgs');
+    let div = createMsgEl(d);
     c.appendChild(div);
     c.scrollTop = c.scrollHeight;
 }

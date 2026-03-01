@@ -266,7 +266,7 @@ function show(name){
     cur=name;
 }
 
-function esc(s){ let d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+function esc(s){ let d=document.createElement('div'); d.textContent=s; return d.innerHTML.replace(/'/g,'&#39;'); }
 function fmtUp(s){ return Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m '+(s%60)+'s'; }
 function fmtSize(b){ if(b<1024)return b+' B'; if(b<1048576)return(b/1024).toFixed(1)+' KB'; return(b/1048576).toFixed(1)+' MB'; }
 function fmtTime(iso){ return iso ? new Date(iso+'Z').toLocaleTimeString('ar-SA') : '--'; }
