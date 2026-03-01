@@ -77,7 +77,8 @@ class Database:
                 size INTEGER DEFAULT 0,
                 uploaded_by TEXT,
                 room_id INTEGER,
-                uploaded_at TEXT DEFAULT (datetime('now'))
+                uploaded_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS settings (
@@ -195,9 +196,15 @@ class Database:
 
     def delete_user(self, username):
         conn = self._get_conn()
+        conn.execute("UPDATE messages SET deleted=1 WHERE sender=?", (username,))
         conn.execute("DELETE FROM room_members WHERE username=?", (username,))
         conn.execute("DELETE FROM users WHERE username=?", (username,))
         conn.commit()
+
+    def get_files_by_room(self, room_id):
+        conn = self._get_conn()
+        rows = conn.execute("SELECT id, saved_as FROM files WHERE room_id=?", (room_id,)).fetchall()
+        return [dict(r) for r in rows]
 
     def admin_reset_password(self, username, new_password):
         conn = self._get_conn()
@@ -337,13 +344,25 @@ class Database:
             conn.execute("UPDATE messages SET deleted=1 WHERE id=?", (msg_id,))
         conn.commit()
 
-    def search_messages(self, query, room_id=None, limit=30):
+    def search_messages(self, query, room_id=None, username=None, limit=30):
         conn = self._get_conn()
         q = f"%{query}%"
         if room_id:
             rows = conn.execute(
                 "SELECT id, sender, text, room_id, timestamp FROM messages WHERE text LIKE ? AND room_id=? AND deleted=0 ORDER BY id DESC LIMIT ?",
                 (q, room_id, limit)).fetchall()
+        elif username:
+            # Only search in user's rooms and own DMs
+            user_rooms = [r["id"] for r in self.get_user_rooms(username)]
+            if user_rooms:
+                placeholders = ",".join("?" for _ in user_rooms)
+                rows = conn.execute(
+                    f"SELECT id, sender, text, room_id, timestamp FROM messages WHERE text LIKE ? AND deleted=0 AND (room_id IN ({placeholders}) OR sender=? OR target=?) ORDER BY id DESC LIMIT ?",
+                    [q] + user_rooms + [username, username, limit]).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT id, sender, text, room_id, timestamp FROM messages WHERE text LIKE ? AND deleted=0 AND (sender=? OR target=?) ORDER BY id DESC LIMIT ?",
+                    (q, username, username, limit)).fetchall()
         else:
             rows = conn.execute(
                 "SELECT id, sender, text, room_id, timestamp FROM messages WHERE text LIKE ? AND deleted=0 ORDER BY id DESC LIMIT ?",
