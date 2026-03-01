@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" id="htmlRoot">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -296,10 +296,10 @@ body.font-large { font-size:17px; }
 <body>
 
 <!-- Connection Status -->
-<div class="conn-bar" id="connBar">انقطع الاتصال... جاري إعادة الاتصال</div>
+<div class="conn-bar" id="connBar" data-i18n="connection_lost">انقطع الاتصال... جاري إعادة الاتصال</div>
 
 <!-- Drag & Drop Overlay -->
-<div class="drop-overlay" id="dropOverlay">اسحب الملف هنا لمشاركته</div>
+<div class="drop-overlay" id="dropOverlay" data-i18n="drag_file_here">اسحب الملف هنا لمشاركته</div>
 
 <!-- Image Lightbox -->
 <div class="lightbox" id="lightbox" onclick="this.classList.remove('on')"><img id="lightboxImg"></div>
@@ -310,95 +310,102 @@ body.font-large { font-size:17px; }
 <!-- Auth Screen -->
 <div class="auth" id="authScreen">
     <div class="auth-box">
-        <h2>هيلين WiFi</h2>
-        <div class="subtitle">اتصال داخلي</div>
+        <h2 data-i18n="app_name">هيلين WiFi</h2>
+        <div class="subtitle" data-i18n="app_subtitle">اتصال داخلي</div>
         <div class="auth-tabs">
-            <button class="on" id="tabLogin" onclick="switchTab('login')">دخول</button>
-            <button id="tabRegister" onclick="switchTab('register')">تسجيل جديد</button>
+            <button class="on" id="tabLogin" onclick="switchTab('login')" data-i18n="login">دخول</button>
+            <button id="tabRegister" onclick="switchTab('register')" data-i18n="register">تسجيل جديد</button>
         </div>
         <div class="auth-error" id="authError"></div>
-        <input id="authUser" placeholder="اسم المستخدم" autofocus>
-        <input id="authPass" type="password" placeholder="كلمة المرور">
-        <button class="abtn primary" id="authBtn" onclick="doAuth()">دخول</button>
+        <input id="authUser" data-i18n-placeholder="username" placeholder="اسم المستخدم" autofocus>
+        <input id="authPass" type="password" data-i18n-placeholder="password" placeholder="كلمة المرور">
+        <button class="abtn primary" id="authBtn" onclick="doAuth()" data-i18n="login">دخول</button>
     </div>
 </div>
 
 <!-- Room Create Modal -->
 <div class="modal-overlay" id="roomModal">
     <div class="modal">
-        <h3>غرفة جديدة</h3>
-        <input id="roomNameIn" placeholder="اسم الغرفة">
-        <input id="roomDescIn" placeholder="وصف (اختياري)">
-        <button class="mbtn-ok" onclick="createRoom()">إنشاء</button>
-        <button class="mbtn-cancel" onclick="closeRoomModal()">إلغاء</button>
+        <h3 data-i18n="new_room">غرفة جديدة</h3>
+        <input id="roomNameIn" data-i18n-placeholder="room_name" placeholder="اسم الغرفة">
+        <input id="roomDescIn" data-i18n-placeholder="description_optional" placeholder="وصف (اختياري)">
+        <button class="mbtn-ok" onclick="createRoom()" data-i18n="create">إنشاء</button>
+        <button class="mbtn-cancel" onclick="closeRoomModal()" data-i18n="cancel">إلغاء</button>
     </div>
 </div>
 
 <!-- Browse Rooms Modal -->
 <div class="modal-overlay" id="browseRoomsModal">
     <div class="modal" style="width:380px;">
-        <h3>تصفح الغرف</h3>
+        <h3 data-i18n="browse_rooms">تصفح الغرف</h3>
         <div id="browseRoomsList" style="max-height:300px;overflow-y:auto;margin-bottom:12px;"></div>
-        <button class="mbtn-cancel" onclick="closeBrowseRooms()">إغلاق</button>
+        <button class="mbtn-cancel" onclick="closeBrowseRooms()" data-i18n="close">إغلاق</button>
     </div>
 </div>
 
 <!-- Profile Modal -->
 <div class="profile-overlay" id="profileModal">
     <div class="profile-modal">
-        <h3>الملف الشخصي</h3>
+        <h3 data-i18n="profile">الملف الشخصي</h3>
         <div class="profile-result" id="profileResult"></div>
-        <input id="profDisplayName" placeholder="الاسم المعروض">
-        <button class="pbtn-ok" onclick="updateDisplayName()">تحديث الاسم</button>
-        <div class="section-title">تغيير كلمة المرور</div>
-        <input id="profOldPw" type="password" placeholder="كلمة المرور الحالية">
-        <input id="profNewPw" type="password" placeholder="كلمة المرور الجديدة">
-        <button class="pbtn-ok" onclick="changeMyPassword()">تغيير كلمة المرور</button>
-        <button class="pbtn-cancel" onclick="closeProfileModal()">إغلاق</button>
+        <input id="profDisplayName" data-i18n-placeholder="display_name" placeholder="الاسم المعروض">
+        <button class="pbtn-ok" onclick="updateDisplayName()" data-i18n="update_name">تحديث الاسم</button>
+        <div class="section-title" data-i18n="change_password">تغيير كلمة المرور</div>
+        <input id="profOldPw" type="password" data-i18n-placeholder="current_password" placeholder="كلمة المرور الحالية">
+        <input id="profNewPw" type="password" data-i18n-placeholder="new_password" placeholder="كلمة المرور الجديدة">
+        <button class="pbtn-ok" onclick="changeMyPassword()" data-i18n="change_password">تغيير كلمة المرور</button>
+        <button class="pbtn-cancel" onclick="closeProfileModal()" data-i18n="close">إغلاق</button>
     </div>
 </div>
 
 <!-- Settings Modal -->
 <div class="settings-overlay" id="settingsModal">
     <div class="settings-modal">
-        <h3>الإعدادات</h3>
+        <h3 data-i18n="settings">الإعدادات</h3>
         <div class="settings-group">
-            <h4>المظهر</h4>
-            <div class="settings-row"><label>الثيم</label>
-                <select class="settings-select" id="setTheme" onchange="applySetting('theme',this.value)">
-                    <option value="dark">داكن</option><option value="light">فاتح</option>
-                </select></div>
-            <div class="settings-row"><label>حجم الخط</label>
-                <select class="settings-select" id="setFontSize" onchange="applySetting('fontSize',this.value)">
-                    <option value="normal">متوسط</option><option value="small">صغير</option><option value="large">كبير</option>
+            <h4 data-i18n="language">اللغة</h4>
+            <div class="settings-row"><label>Language / اللغة</label>
+                <select class="settings-select" id="setLang" onchange="I18N.setLang(this.value)">
+                    <option value="ar">العربية</option><option value="en">English</option>
                 </select></div>
         </div>
         <div class="settings-group">
-            <h4>الإشعارات</h4>
-            <div class="settings-row"><label>أصوات الإشعارات</label>
+            <h4 data-i18n="appearance">المظهر</h4>
+            <div class="settings-row"><label data-i18n="theme">الثيم</label>
+                <select class="settings-select" id="setTheme" onchange="applySetting('theme',this.value)">
+                    <option value="dark" data-i18n="dark">داكن</option><option value="light" data-i18n="light">فاتح</option>
+                </select></div>
+            <div class="settings-row"><label data-i18n="font_size">حجم الخط</label>
+                <select class="settings-select" id="setFontSize" onchange="applySetting('fontSize',this.value)">
+                    <option value="normal" data-i18n="medium">متوسط</option><option value="small" data-i18n="small">صغير</option><option value="large" data-i18n="large">كبير</option>
+                </select></div>
+        </div>
+        <div class="settings-group">
+            <h4 data-i18n="notifications">الإشعارات</h4>
+            <div class="settings-row"><label data-i18n="notification_sounds">أصوات الإشعارات</label>
                 <label class="settings-toggle"><input type="checkbox" id="setSoundOn" checked onchange="applySetting('soundOn',this.checked)"><span class="slider"></span></label></div>
-            <div class="settings-row"><label>إشعارات سطح المكتب</label>
+            <div class="settings-row"><label data-i18n="desktop_notifications">إشعارات سطح المكتب</label>
                 <label class="settings-toggle"><input type="checkbox" id="setDesktopNotif" checked onchange="applySetting('desktopNotif',this.checked)"><span class="slider"></span></label></div>
         </div>
         <div class="settings-group">
-            <h4>الأمان</h4>
-            <div class="settings-row"><label>تشفير E2E (الرسائل الخاصة)</label>
+            <h4 data-i18n="security">الأمان</h4>
+            <div class="settings-row"><label data-i18n="e2e_encryption">تشفير E2E (الرسائل الخاصة)</label>
                 <label class="settings-toggle"><input type="checkbox" id="setE2E" checked onchange="applySetting('e2eEnabled',this.checked)"><span class="slider"></span></label></div>
         </div>
         <div class="settings-group">
-            <h4>المكالمات</h4>
-            <div class="settings-row"><label>تسجيل المكالمات تلقائياً</label>
+            <h4 data-i18n="calls">المكالمات</h4>
+            <div class="settings-row"><label data-i18n="auto_record">تسجيل المكالمات تلقائياً</label>
                 <label class="settings-toggle"><input type="checkbox" id="setAutoRecord" onchange="applySetting('autoRecord',this.checked)"><span class="slider"></span></label></div>
         </div>
-        <button style="width:100%;padding:10px;border:none;border-radius:8px;background:rgba(255,255,255,0.08);color:#fff;cursor:pointer;" onclick="closeSettings()">إغلاق</button>
+        <button style="width:100%;padding:10px;border:none;border-radius:8px;background:rgba(255,255,255,0.08);color:#fff;cursor:pointer;" onclick="closeSettings()" data-i18n="close">إغلاق</button>
     </div>
 </div>
 
 <!-- Incoming Call -->
 <div class="call-popup" id="callPopup">
     <div class="call-card">
-        <h2 id="callerName">مكالمة واردة</h2>
-        <p id="callTypeText">مكالمة فيديو</p>
+        <h2 id="callerName" data-i18n="incoming_call">مكالمة واردة</h2>
+        <p id="callTypeText" data-i18n="video_call">مكالمة فيديو</p>
         <div class="row">
             <button class="acc" onclick="acceptCall()">&#128222;</button>
             <button class="rej" onclick="rejectCall()">&#10005;</button>
@@ -411,22 +418,22 @@ body.font-large { font-size:17px; }
     <div class="sidebar" id="sidebarPanel">
         <!-- My Status -->
         <div class="my-status">
-            <span style="font-size:.82em;">حالتي:</span>
+            <span style="font-size:.82em;" data-i18n="my_status">حالتي:</span>
             <select id="myStatus" onchange="setMyStatus(this.value)">
-                <option value="online">متصل</option>
-                <option value="away">بعيد</option>
-                <option value="busy">مشغول</option>
+                <option value="online" data-i18n="online">متصل</option>
+                <option value="away" data-i18n="away">بعيد</option>
+                <option value="busy" data-i18n="busy">مشغول</option>
             </select>
             <button onclick="doLogout()" style="margin-right:auto;background:none;border:1px solid var(--red);color:var(--red);
-                    border-radius:6px;padding:3px 10px;font-size:.72em;cursor:pointer;" title="تسجيل خروج">خروج</button>
+                    border-radius:6px;padding:3px 10px;font-size:.72em;cursor:pointer;" data-i18n="logout">خروج</button>
         </div>
 
         <!-- Rooms -->
-        <div class="sec-title">الغرف <span><button onclick="browseRooms()" title="تصفح الغرف" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:1em;">&#128269;</button><button onclick="openRoomModal()" title="غرفة جديدة">+</button></span></div>
+        <div class="sec-title"><span data-i18n="rooms">الغرف</span> <span><button onclick="browseRooms()" data-i18n-title="browse_rooms" title="تصفح الغرف" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:1em;">&#128269;</button><button onclick="openRoomModal()" data-i18n-title="new_room" title="غرفة جديدة">+</button></span></div>
         <div class="rooms-list" id="roomList"></div>
 
         <!-- Users -->
-        <div class="sec-title">المتصلون</div>
+        <div class="sec-title" data-i18n="connected_users">المتصلون</div>
         <div class="users-list" id="userList"></div>
     </div>
 
@@ -448,13 +455,13 @@ body.font-large { font-size:17px; }
 
         <!-- Search Bar -->
         <div class="search-bar" id="searchBar">
-            <input id="searchInput" placeholder="بحث في الرسائل..." onkeydown="if(event.key==='Enter')doSearch()">
+            <input id="searchInput" data-i18n-placeholder="search_messages" placeholder="بحث في الرسائل..." onkeydown="if(event.key==='Enter')doSearch()">
             <button onclick="closeSearch()">&#10005;</button>
         </div>
 
         <div class="screen-share-area" id="screenArea">
-            <span class="screen-share-label">مشاركة الشاشة</span>
-            <button class="screen-share-stop" onclick="stopScreenShare()">إيقاف المشاركة</button>
+            <span class="screen-share-label" data-i18n="screen_share">مشاركة الشاشة</span>
+            <button class="screen-share-stop" onclick="stopScreenShare()" data-i18n="stop_sharing">إيقاف المشاركة</button>
             <video id="screenVid" autoplay playsinline></video>
         </div>
         <div class="vid-area" id="vidArea">
@@ -473,7 +480,7 @@ body.font-large { font-size:17px; }
             <div class="msgs" id="msgs"></div>
             <div class="typing-bar" id="typingBar"></div>
             <div class="reply-bar" id="replyBar">
-                <span>رد على: </span>
+                <span data-i18n="reply_to">رد على: </span>
                 <span class="reply-text" id="replyText"></span>
                 <button class="reply-close" onclick="cancelReply()">&#10005;</button>
             </div>
@@ -484,30 +491,31 @@ body.font-large { font-size:17px; }
             <div class="input-row">
                 <input type="file" id="fileIn" style="display:none" onchange="sendFile()">
                 <button class="fbtn" onclick="document.getElementById('fileIn').click()">&#128206;</button>
-                <input type="text" id="msgIn" placeholder="اكتب رسالتك..." onkeydown="handleMsgKey(event)" oninput="handleTyping()">
+                <input type="text" id="msgIn" data-i18n-placeholder="type_message" placeholder="اكتب رسالتك..." onkeydown="handleMsgKey(event)" oninput="handleTyping()">
                 <button class="sbtn" onclick="sendMsg()">&#10148;</button>
             </div>
         </div>
     </div>
 
     <div class="info">
-        <div class="sec-title" style="padding:0 0 6px;">معلومات</div>
+        <div class="sec-title" style="padding:0 0 6px;" data-i18n="info">معلومات</div>
         <div class="info-card">
-            <h3>السيرفر</h3>
-            <div class="irow"><span class="l">المعرف</span><span class="v" id="iServerId">--</span></div>
-            <div class="irow"><span class="l">الاتصال</span><span class="v" id="iFiber">--</span></div>
+            <h3 data-i18n="server">السيرفر</h3>
+            <div class="irow"><span class="l" data-i18n="server_id">المعرف</span><span class="v" id="iServerId">--</span></div>
+            <div class="irow"><span class="l" data-i18n="connection_type">الاتصال</span><span class="v" id="iFiber">--</span></div>
         </div>
         <div class="info-card">
-            <h3>احصائيات</h3>
-            <div class="irow"><span class="l">متصلون</span><span class="v" id="iOnline">0</span></div>
-            <div class="irow"><span class="l">رسائل</span><span class="v" id="iMsgs">0</span></div>
-            <div class="irow"><span class="l">ملفات</span><span class="v" id="iFiles">0</span></div>
+            <h3 data-i18n="statistics">احصائيات</h3>
+            <div class="irow"><span class="l" data-i18n="online_count">متصلون</span><span class="v" id="iOnline">0</span></div>
+            <div class="irow"><span class="l" data-i18n="messages_count">رسائل</span><span class="v" id="iMsgs">0</span></div>
+            <div class="irow"><span class="l" data-i18n="files_count">ملفات</span><span class="v" id="iFiles">0</span></div>
         </div>
-        <div class="sec-title" style="padding:10px 0 6px;">ملفات مشتركة</div>
+        <div class="sec-title" style="padding:10px 0 6px;" data-i18n="shared_files">ملفات مشتركة</div>
         <div id="sharedFiles"></div>
     </div>
 </div>
 
+<script src="/static/js/i18n.js"></script>
 <script src="/static/js/socket.io.min.js"></script>
 <script>
 let socket, me, myRole='user';
@@ -567,6 +575,7 @@ function openSettings(){
     document.getElementById('setDesktopNotif').checked = appSettings.desktopNotif;
     document.getElementById('setE2E').checked = appSettings.e2eEnabled;
     document.getElementById('setAutoRecord').checked = appSettings.autoRecord;
+    document.getElementById('setLang').value = I18N.lang;
     document.getElementById('settingsModal').classList.add('on');
 }
 function closeSettings(){ document.getElementById('settingsModal').classList.remove('on'); }
@@ -609,14 +618,14 @@ function switchTab(mode){
     authMode=mode;
     document.getElementById('tabLogin').classList.toggle('on', mode==='login');
     document.getElementById('tabRegister').classList.toggle('on', mode==='register');
-    document.getElementById('authBtn').textContent = mode==='login' ? 'دخول' : 'تسجيل';
+    document.getElementById('authBtn').textContent = mode==='login' ? t('login') : t('register');
     document.getElementById('authError').style.display='none';
 }
 
 function doAuth(){
     let user = document.getElementById('authUser').value.trim();
     let pass = document.getElementById('authPass').value;
-    if(!user||!pass){ showAuthError('الاسم وكلمة المرور مطلوبين'); return; }
+    if(!user||!pass){ showAuthError(t('username_password_required')); return; }
     initSocket(user, pass, null);
 }
 
@@ -717,8 +726,8 @@ function updateDisplayName(){
 function changeMyPassword(){
     let old = document.getElementById('profOldPw').value;
     let nw = document.getElementById('profNewPw').value;
-    if(!old||!nw){ showProfileResult('أدخل كلمة المرور',false); return; }
-    if(nw.length<4){ showProfileResult('كلمة المرور قصيرة (4 أحرف على الأقل)',false); return; }
+    if(!old||!nw){ showProfileResult(t('enter_password'),false); return; }
+    if(nw.length<4){ showProfileResult(t('password_too_short'),false); return; }
     socket.emit('change_password', {old_password:old, new_password:nw});
 }
 function showProfileResult(msg, ok){
@@ -800,7 +809,7 @@ function uploadFile(f){
         }
     };
     xhr.onload = ()=>{ bar.classList.remove('on'); };
-    xhr.onerror = ()=>{ bar.classList.remove('on'); sysMsg('فشل رفع الملف'); };
+    xhr.onerror = ()=>{ bar.classList.remove('on'); sysMsg(t('file_upload_failed')); };
     xhr.send(form);
 }
 
@@ -827,7 +836,7 @@ function initSocket(user, pass, token){
 
     // Force disconnect (kicked/banned by admin)
     socket.on('force_disconnect', d=>{
-        alert(d.reason || 'تم قطع اتصالك');
+        alert(d.reason || t('disconnected_reason'));
         localStorage.removeItem('helen_token');
         localStorage.removeItem('helen_user');
         location.reload();
@@ -865,7 +874,7 @@ function initSocket(user, pass, token){
     socket.on('server_info', d=>{
         document.getElementById('iServerId').textContent = d.server_id;
         if(d.ice_servers) iceConfig.iceServers = d.ice_servers;
-        document.getElementById('iFiber').textContent = d.is_fiber ? 'فايبر' : 'عادي';
+        document.getElementById('iFiber').textContent = d.is_fiber ? t('fiber') : t('normal');
         document.getElementById('iFiber').style.color = d.is_fiber ? 'var(--green)' : '';
     });
 
@@ -876,8 +885,8 @@ function initSocket(user, pass, token){
     });
 
     socket.on('user_offline', d=>{
-        if(d.username) sysMsg(d.username+' غادر');
-        if(d.sid===inCall){ sysMsg('انتهت المكالمة'); cleanup(); }
+        if(d.username) sysMsg(d.username+' '+t('left'));
+        if(d.sid===inCall){ sysMsg(t('call_ended')); cleanup(); }
     });
 
     socket.on('chat_message', d=>{
@@ -908,7 +917,7 @@ function initSocket(user, pass, token){
         }
         addShared(d);
         if(d.uploaded_by!==me){
-            showNotif(d.uploaded_by, 'شارك ملف: '+d.name);
+            showNotif(d.uploaded_by, t('shared_file')+': '+d.name);
             playMsgSound();
         }
     });
@@ -923,7 +932,7 @@ function initSocket(user, pass, token){
     });
 
     socket.on('room_error', d=>{
-        sysMsg(d.error || 'خطأ في الغرفة');
+        sysMsg(d.error || t('room_error'));
     });
 
     socket.on('room_history', d=>{
@@ -939,12 +948,12 @@ function initSocket(user, pass, token){
         if(d.has_more && msgs.length > 0){
             let loadBtn = document.createElement('div');
             loadBtn.className = 'load-more-btn';
-            loadBtn.textContent = 'تحميل رسائل أقدم...';
+            loadBtn.textContent = t('load_older');
             loadBtn.style.cssText = 'text-align:center;padding:10px;color:var(--accent);cursor:pointer;font-size:.82em;';
             let firstId = msgs[0].id;
             let roomId = d.room_id;
             loadBtn.addEventListener('click', ()=>{
-                loadBtn.textContent = 'جاري التحميل...';
+                loadBtn.textContent = t('loading');
                 socket.emit('get_room_history', {room_id:roomId, before_id:firstId});
             });
             if(d.before_id){
@@ -977,12 +986,12 @@ function initSocket(user, pass, token){
         if(d.has_more && msgs.length > 0){
             let loadBtn = document.createElement('div');
             loadBtn.className = 'load-more-btn';
-            loadBtn.textContent = 'تحميل رسائل أقدم...';
+            loadBtn.textContent = t('load_older');
             loadBtn.style.cssText = 'text-align:center;padding:10px;color:var(--accent);cursor:pointer;font-size:.82em;';
             let firstId = msgs[0].id;
             let otherUser = d.username;
             loadBtn.addEventListener('click', ()=>{
-                loadBtn.textContent = 'جاري التحميل...';
+                loadBtn.textContent = t('loading');
                 socket.emit('get_dm_history', {username:otherUser, before_id:firstId});
             });
             if(d.before_id){
@@ -1008,7 +1017,7 @@ function initSocket(user, pass, token){
     // Typing
     socket.on('user_typing', d=>{
         if(shouldShowTyping(d)){
-            document.getElementById('typingBar').textContent = d.username + ' يكتب...';
+            document.getElementById('typingBar').textContent = d.username + ' ' + t('typing');
         }
     });
     socket.on('user_stop_typing', d=>{
@@ -1025,10 +1034,10 @@ function initSocket(user, pass, token){
     socket.on('search_results', d=>{
         document.getElementById('msgs').innerHTML='';
         if(d.results && d.results.length){
-            sysMsg('نتائج البحث: ' + d.results.length);
+            sysMsg(t('search_results') + d.results.length);
             d.results.forEach(m=> addMsg(m));
         } else {
-            sysMsg('لا توجد نتائج');
+            sysMsg(t('no_results'));
         }
     });
 
@@ -1045,28 +1054,28 @@ function initSocket(user, pass, token){
     socket.on('incoming_call', d=>{
         inCall = d.sender;
         document.getElementById('callerName').textContent = d.sender_name;
-        document.getElementById('callTypeText').textContent = d.call_type==='video'?'مكالمة فيديو':'مكالمة صوتية';
+        document.getElementById('callTypeText').textContent = d.call_type==='video'?t('video_call'):t('audio_call');
         document.getElementById('callPopup').classList.add('on');
         window._callType = d.call_type;
         startRing();
-        showNotif('مكالمة واردة', d.sender_name);
+        showNotif(t('incoming_call'), d.sender_name);
     });
 
     socket.on('call_accepted', async d=>{ await createOffer(d.sender); });
-    socket.on('call_rejected', ()=>{ sysMsg('تم رفض المكالمة'); cleanup(); });
-    socket.on('call_ended', ()=>{ sysMsg('انتهت المكالمة'); cleanup(); });
+    socket.on('call_rejected', ()=>{ sysMsg(t('call_rejected')); cleanup(); });
+    socket.on('call_ended', ()=>{ sysMsg(t('call_ended')); cleanup(); });
     socket.on('webrtc_offer', async d=> await handleOffer(d));
     socket.on('webrtc_answer', async d=> await handleAnswer(d));
     socket.on('webrtc_ice', async d=> await handleIce(d));
 
     // Screen share
     socket.on('screen_share_started', d=>{
-        sysMsg(d.sender_name + ' بدأ مشاركة الشاشة');
+        sysMsg(d.sender_name + ' ' + t('started_screen_share'));
     });
     socket.on('screen_share_stopped', d=>{
         document.getElementById('screenArea').classList.remove('on');
         document.getElementById('screenVid').srcObject = null;
-        sysMsg('توقفت مشاركة الشاشة');
+        sysMsg(t('screen_share_stopped'));
     });
     socket.on('screen_offer', async d=> await handleScreenOffer(d));
     socket.on('screen_answer', async d=> await handleScreenAnswer(d));
@@ -1155,7 +1164,7 @@ function createRoom(){
 function browseRooms(){
     socket.emit('get_rooms_list');
     document.getElementById('browseRoomsModal').classList.add('on');
-    document.getElementById('browseRoomsList').innerHTML = '<div style="text-align:center;color:var(--dim);padding:20px;">جاري التحميل...</div>';
+    document.getElementById('browseRoomsList').innerHTML = '<div style="text-align:center;color:var(--dim);padding:20px;">'+t('loading')+'</div>';
 }
 function closeBrowseRooms(){ document.getElementById('browseRoomsModal').classList.remove('on'); }
 
@@ -1163,7 +1172,7 @@ function showJoinRoomsList(rooms){
     let el = document.getElementById('browseRoomsList');
     let myIds = myRooms.map(r=>r.id);
     if(!rooms || !rooms.length){
-        el.innerHTML = '<div style="text-align:center;color:var(--dim);padding:20px;">لا توجد غرف</div>';
+        el.innerHTML = '<div style="text-align:center;color:var(--dim);padding:20px;">'+t('no_rooms')+'</div>';
         return;
     }
     el.innerHTML = '';
@@ -1183,16 +1192,16 @@ function showJoinRoomsList(rooms){
         }
         let members = document.createElement('div');
         members.style.cssText = 'font-size:.65em;color:var(--accent);';
-        members.textContent = (r.member_count||0) + ' عضو';
+        members.textContent = (r.member_count||0) + ' ' + t('member');
         info.appendChild(members);
         div.appendChild(info);
 
         if(myIds.includes(r.id)){
             let lbl = document.createElement('span');
             lbl.style.cssText = 'font-size:.72em;color:var(--green);';
-            lbl.textContent = 'منضم';
+            lbl.textContent = t('joined');
             let leaveBtn = document.createElement('button');
-            leaveBtn.textContent = 'مغادرة';
+            leaveBtn.textContent = t('leave');
             leaveBtn.style.cssText = 'margin-right:8px;padding:4px 10px;background:var(--red);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.72em;';
             leaveBtn.addEventListener('click', ()=>{
                 socket.emit('leave_room_req', {room_id:r.id});
@@ -1205,7 +1214,7 @@ function showJoinRoomsList(rooms){
             div.appendChild(wrap);
         } else {
             let btn = document.createElement('button');
-            btn.textContent = 'انضمام';
+            btn.textContent = t('join');
             btn.style.cssText = 'padding:4px 12px;background:linear-gradient(135deg,#00d4ff,#0066ff);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:.78em;';
             btn.addEventListener('click', ()=>{
                 socket.emit('join_room_req', {room_id:r.id});
@@ -1242,7 +1251,7 @@ function renderUsers(users){
         if(u.role && u.role !== 'user'){
             let rb = document.createElement('span');
             rb.className = 'role-badge role-'+u.role;
-            rb.textContent = u.role==='admin'?'مدير':'مشرف';
+            rb.textContent = u.role==='admin'?t('admin'):t('moderator');
             nameEl.appendChild(rb);
         }
         if(u.remote){
@@ -1422,7 +1431,7 @@ function fileMsg(data){
 
     let who = document.createElement('div');
     who.className = 'who';
-    who.textContent = data.uploaded_by + ' شارك ملف';
+    who.textContent = data.uploaded_by + ' ' + t('shared_file');
     d.appendChild(who);
 
     let a = document.createElement('a');
@@ -1479,20 +1488,20 @@ function sendFile(){
 
 // --- WebRTC ---
 async function startCall(type){
-    if(!selUser){ sysMsg('اختر مستخدم'); return; }
+    if(!selUser){ sysMsg(t('select_user')); return; }
     window._callType = type;
     try {
         localStream = await navigator.mediaDevices.getUserMedia({
             audio:{echoCancellation:true,noiseSuppression:true},
             video: type==='video' ? {width:{ideal:1280},height:{ideal:720}} : false,
         });
-    } catch(e){ sysMsg('فشل الوصول للجهاز: '+e.message); return; }
+    } catch(e){ sysMsg(t('device_error')+e.message); return; }
     document.getElementById('localVid').srcObject = localStream;
     if(type==='video') document.getElementById('vidArea').classList.add('on');
     document.getElementById('hangupBtn').style.display='flex';
     inCall = selUser;
     socket.emit('call_request',{target:selUser, sender_name:me, call_type:type});
-    sysMsg('جاري الاتصال...');
+    sysMsg(t('calling'));
 }
 
 async function acceptCall(){
@@ -1504,7 +1513,7 @@ async function acceptCall(){
             audio:{echoCancellation:true,noiseSuppression:true},
             video: type==='video' ? {width:{ideal:1280},height:{ideal:720}} : false,
         });
-    } catch(e){ sysMsg('فشل الوصول للجهاز'); return; }
+    } catch(e){ sysMsg(t('device_error')+e.message); return; }
     document.getElementById('localVid').srcObject = localStream;
     if(type==='video') document.getElementById('vidArea').classList.add('on');
     document.getElementById('hangupBtn').style.display='flex';
@@ -1562,8 +1571,8 @@ function setupPC(target){
         if(e.track.kind === 'video') document.getElementById('vidArea').classList.add('on');
     };
     pc.onconnectionstatechange = ()=>{
-        if(pc.connectionState==='connected'){ sysMsg('تم الاتصال'); startCallTimer(); }
-        if(pc.connectionState==='failed'||pc.connectionState==='disconnected'){ sysMsg('انقطع الاتصال'); cleanup(); }
+        if(pc.connectionState==='connected'){ sysMsg(t('connected')); startCallTimer(); }
+        if(pc.connectionState==='failed'||pc.connectionState==='disconnected'){ sysMsg(t('disconnected')); cleanup(); }
     };
 }
 
@@ -1611,10 +1620,10 @@ function esc(s){ let d=document.createElement('div'); d.textContent=s; return d.
 // ============================================================
 async function toggleScreenShare(){
     if(isScreenSharing){ stopScreenShare(); return; }
-    if(!selUser){ sysMsg('اختر مستخدم لمشاركة الشاشة'); return; }
+    if(!selUser){ sysMsg(t('select_user_for_screen')); return; }
     try {
         screenStream = await navigator.mediaDevices.getDisplayMedia({video:{cursor:'always'}, audio:false});
-    } catch(e){ sysMsg('تم إلغاء مشاركة الشاشة'); return; }
+    } catch(e){ sysMsg(t('screen_share_cancelled')); return; }
     isScreenSharing = true;
     document.getElementById('screenBtn').style.background = 'var(--red)';
     document.getElementById('screenArea').classList.add('on');
@@ -1628,7 +1637,7 @@ async function toggleScreenShare(){
     let offer = await screenPC.createOffer();
     await screenPC.setLocalDescription(offer);
     socket.emit('screen_offer',{sdp:offer.sdp, type:offer.type, target:selUser});
-    sysMsg('بدأت مشاركة الشاشة');
+    sysMsg(t('screen_share_started'));
 }
 function stopScreenShare(){
     if(!isScreenSharing) return;
@@ -1680,7 +1689,7 @@ function startRecording(){
         mediaRecorder = new MediaRecorder(combined, {mimeType:'video/webm;codecs=vp8,opus'});
     } catch(e){
         try { mediaRecorder = new MediaRecorder(combined, {mimeType:'audio/webm'}); }
-        catch(e2){ sysMsg('المتصفح لا يدعم التسجيل'); return; }
+        catch(e2){ sysMsg(t('browser_no_record')); return; }
     }
     recordedChunks = [];
     recordingStartTime = Date.now();
@@ -1690,7 +1699,7 @@ function startRecording(){
     isRecording = true;
     document.getElementById('recBtn').classList.add('recording');
     document.getElementById('recDot').classList.add('on');
-    sysMsg('بدأ تسجيل المكالمة');
+    sysMsg(t('recording_started'));
 }
 function stopRecordingAndUpload(){
     if(!isRecording || !mediaRecorder) return;
@@ -1710,8 +1719,8 @@ function uploadRecording(){
     form.append('call_type', window._callType || 'audio');
     form.append('duration', String(duration));
     fetch('/api/upload-recording', {method:'POST', body:form}).then(r=>r.json()).then(d=>{
-        if(d.status==='ok') sysMsg('تم حفظ التسجيل');
-    }).catch(()=> sysMsg('فشل رفع التسجيل'));
+        if(d.status==='ok') sysMsg(t('recording_saved'));
+    }).catch(()=> sysMsg(t('recording_failed')));
     recordedChunks = [];
     recordingStartTime = null;
 }
@@ -1766,7 +1775,7 @@ async function decryptMsg(ciphertext, senderUsername){
         let ct = new Uint8Array([...raw.slice(12)].map(c=>c.charCodeAt(0)));
         let plain = await crypto.subtle.decrypt({name:'AES-GCM',iv}, derivedKeys[senderUsername], ct);
         return new TextDecoder().decode(plain);
-    } catch(e){ return '[رسالة مشفرة]'; }
+    } catch(e){ return t('encrypted_message'); }
 }
 
 // Request public key when selecting a user for DM
@@ -1784,6 +1793,23 @@ showNotif = function(title, body){
     origShowNotif(title, body);
     if(window.helenDesktop) window.helenDesktop.flashFrame();
 };
+
+// --- i18n initialization ---
+(function(){
+    let el = document.getElementById('htmlRoot');
+    if(I18N.lang === 'en'){
+        el.setAttribute('lang','en');
+        el.setAttribute('dir','ltr');
+    }
+    I18N.applyAll();
+    I18N.onLangChange(function(lang){
+        el.setAttribute('lang', lang);
+        el.setAttribute('dir', lang==='ar'?'rtl':'ltr');
+        // Re-render dynamic content
+        if(lastUsers.length) renderUsers(lastUsers);
+        if(myRooms.length) renderRooms();
+    });
+})();
 
 </script>
 </body>
