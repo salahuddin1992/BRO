@@ -80,6 +80,11 @@ class Database:
                 uploaded_at TEXT DEFAULT (datetime('now'))
             );
 
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id);
             CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
             CREATE INDEX IF NOT EXISTS idx_messages_target ON messages(target);
@@ -417,3 +422,15 @@ class Database:
             return os.path.getsize(self.db_path)
         except OSError:
             return 0
+
+    # ===================== Settings =====================
+
+    def set_setting(self, key, value):
+        conn = self._get_conn()
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value))
+        conn.commit()
+
+    def get_setting(self, key, default=None):
+        conn = self._get_conn()
+        row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else default

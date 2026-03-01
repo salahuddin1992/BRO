@@ -281,6 +281,15 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
     </div>
 </div>
 
+<!-- Browse Rooms Modal -->
+<div class="modal-overlay" id="browseRoomsModal">
+    <div class="modal" style="width:380px;">
+        <h3>تصفح الغرف</h3>
+        <div id="browseRoomsList" style="max-height:300px;overflow-y:auto;margin-bottom:12px;"></div>
+        <button class="mbtn-cancel" onclick="closeBrowseRooms()">إغلاق</button>
+    </div>
+</div>
+
 <!-- Profile Modal -->
 <div class="profile-overlay" id="profileModal">
     <div class="profile-modal">
@@ -324,7 +333,7 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
         </div>
 
         <!-- Rooms -->
-        <div class="sec-title">الغرف <button onclick="openRoomModal()" title="غرفة جديدة">+</button></div>
+        <div class="sec-title">الغرف <span><button onclick="browseRooms()" title="تصفح الغرف" style="background:none;border:none;color:var(--accent);cursor:pointer;font-size:1em;">&#128269;</button><button onclick="openRoomModal()" title="غرفة جديدة">+</button></span></div>
         <div class="rooms-list" id="roomList"></div>
 
         <!-- Users -->
@@ -627,6 +636,7 @@ function uploadFile(f){
     let form = new FormData();
     form.append('file',f); form.append('username',me);
     if(selRoom) form.append('room_id', selRoom);
+    else if(selUserName) form.append('target_user', selUserName);
 
     let bar = document.getElementById('uploadBar');
     let fill = document.getElementById('pFill');
@@ -757,7 +767,11 @@ function initSocket(user, pass, token){
     });
 
     socket.on('room_created', d=>{
-        // New room available
+        // New room available - refresh browse list if open
+    });
+
+    socket.on('room_error', d=>{
+        sysMsg(d.error || 'خطأ في الغرفة');
     });
 
     socket.on('room_history', d=>{
@@ -898,6 +912,72 @@ function createRoom(){
     document.getElementById('roomNameIn').value='';
     document.getElementById('roomDescIn').value='';
     closeRoomModal();
+}
+
+// --- Browse / Join Rooms ---
+function browseRooms(){
+    socket.emit('get_rooms_list');
+    document.getElementById('browseRoomsModal').classList.add('on');
+    document.getElementById('browseRoomsList').innerHTML = '<div style="text-align:center;color:var(--dim);padding:20px;">جاري التحميل...</div>';
+}
+function closeBrowseRooms(){ document.getElementById('browseRoomsModal').classList.remove('on'); }
+
+function showJoinRoomsList(rooms){
+    let el = document.getElementById('browseRoomsList');
+    let myIds = myRooms.map(r=>r.id);
+    if(!rooms || !rooms.length){
+        el.innerHTML = '<div style="text-align:center;color:var(--dim);padding:20px;">لا توجد غرف</div>';
+        return;
+    }
+    el.innerHTML = '';
+    rooms.forEach(r=>{
+        let div = document.createElement('div');
+        div.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px;border-bottom:1px solid var(--border);';
+        let info = document.createElement('div');
+        let nameEl = document.createElement('div');
+        nameEl.style.cssText = 'font-size:.88em;font-weight:600;';
+        nameEl.textContent = r.name;
+        info.appendChild(nameEl);
+        if(r.description){
+            let desc = document.createElement('div');
+            desc.style.cssText = 'font-size:.72em;color:var(--dim);';
+            desc.textContent = r.description;
+            info.appendChild(desc);
+        }
+        let members = document.createElement('div');
+        members.style.cssText = 'font-size:.65em;color:var(--accent);';
+        members.textContent = (r.member_count||0) + ' عضو';
+        info.appendChild(members);
+        div.appendChild(info);
+
+        if(myIds.includes(r.id)){
+            let lbl = document.createElement('span');
+            lbl.style.cssText = 'font-size:.72em;color:var(--green);';
+            lbl.textContent = 'منضم';
+            let leaveBtn = document.createElement('button');
+            leaveBtn.textContent = 'مغادرة';
+            leaveBtn.style.cssText = 'margin-right:8px;padding:4px 10px;background:var(--red);color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:.72em;';
+            leaveBtn.addEventListener('click', ()=>{
+                socket.emit('leave_room_req', {room_id:r.id});
+                setTimeout(browseRooms, 300);
+            });
+            let wrap = document.createElement('div');
+            wrap.style.cssText = 'display:flex;align-items:center;gap:6px;';
+            wrap.appendChild(lbl);
+            if(r.name !== 'عامة') wrap.appendChild(leaveBtn);
+            div.appendChild(wrap);
+        } else {
+            let btn = document.createElement('button');
+            btn.textContent = 'انضمام';
+            btn.style.cssText = 'padding:4px 12px;background:linear-gradient(135deg,#00d4ff,#0066ff);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:.78em;';
+            btn.addEventListener('click', ()=>{
+                socket.emit('join_room_req', {room_id:r.id});
+                setTimeout(browseRooms, 300);
+            });
+            div.appendChild(btn);
+        }
+        el.appendChild(div);
+    });
 }
 
 // --- Users ---

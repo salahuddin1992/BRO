@@ -57,6 +57,11 @@ class BROServer:
         # Database
         self.db = Database(config.DB_PATH)
 
+        # Restore persisted admin password if changed
+        saved_pw = self.db.get_setting("admin_password")
+        if saved_pw:
+            config.ADMIN_PASSWORD = saved_pw
+
         # Network
         self.detector = NetworkDetector()
         self.detector.detect_all()
@@ -287,6 +292,7 @@ class BROServer:
             if len(new) < 4:
                 return jsonify({"error": "كلمة المرور الجديدة قصيرة"}), 400
             config.ADMIN_PASSWORD = new
+            self.db.set_setting("admin_password", new)
             self._log("Admin password changed")
             return jsonify({"status": "ok"})
 
@@ -306,6 +312,7 @@ class BROServer:
             size = os.path.getsize(os.path.join(config.UPLOAD_FOLDER, name))
             uploaded_by = request.form.get("username", "?")
             room_id = request.form.get("room_id", type=int)
+            target_user = request.form.get("target_user")
 
             self.db.save_file(original, name, size, uploaded_by, room_id)
             info = {
@@ -314,12 +321,18 @@ class BROServer:
                 "uploaded_by": uploaded_by,
                 "uploaded_at": datetime.utcnow().isoformat(),
                 "room_id": room_id,
+                "target_user": target_user,
             }
             self._log(f"File: {f.filename}")
             if room_id:
                 members = self.db.get_room_members(room_id)
                 for sid, cl in self.clients.items():
                     if cl.get("username") in members:
+                        self.sio.emit("file_shared", info, room=sid)
+            elif target_user:
+                # DM file - send only to target and sender
+                for sid, cl in self.clients.items():
+                    if cl.get("username") in (target_user, uploaded_by):
                         self.sio.emit("file_shared", info, room=sid)
             else:
                 self.sio.emit("file_shared", info)
@@ -408,7 +421,10 @@ class BROServer:
             client = self.clients.pop(sid, {})
             name = client.get("username")
             if name:
-                self.db.set_offline(name)
+                # Only set offline if no other sessions for this user
+                still_online = any(c.get("username") == name for c in self.clients.values())
+                if not still_online:
+                    self.db.set_offline(name)
                 self._log(f"Disconnected: {name}")
             self.signaling.handle_disconnect(sid)
             self.typing_state.pop(sid, None)
@@ -562,6 +578,7 @@ class BROServer:
             room_id = data.get("room_id")
             if room_id:
                 msgs = self.db.get_messages(room_id=room_id, limit=50)
+                self._attach_reply_info(msgs)
                 files = self.db.get_files(room_id=room_id, limit=20)
                 emit("room_history", {"room_id": room_id, "messages": msgs, "files": files})
 
@@ -573,6 +590,7 @@ class BROServer:
             other = data.get("username")
             if me and other:
                 msgs = self.db.get_dm_history(me, other, limit=50)
+                self._attach_reply_info(msgs)
                 emit("dm_history", {"username": other, "messages": msgs})
 
         @self.sio.on("get_rooms_list")
@@ -633,10 +651,18 @@ class BROServer:
             sid = request.sid
             client = self.clients.get(sid, {})
             sender = client.get("username", data.get("sender", "?"))
+            if not sender or sender == "?":
+                return
             text = data.get("text", "")
             target_user = data.get("target_user")
             room_id = data.get("room_id")
             reply_to = data.get("reply_to")
+
+            # Verify room membership
+            if room_id:
+                members = self.db.get_room_members(room_id)
+                if sender not in members:
+                    return
 
             result = self.db.save_message(sender, text, target=target_user, room_id=room_id, reply_to=reply_to)
             msg = {
@@ -652,7 +678,7 @@ class BROServer:
 
             if target_user:
                 for csid, cl in self.clients.items():
-                    if cl.get("username") == target_user:
+                    if cl.get("username") == target_user and cl.get("username") != sender:
                         self.sio.emit("chat_message", msg, room=csid)
                 emit("chat_message", msg)
             elif room_id:
@@ -770,6 +796,14 @@ class BROServer:
             server_id = self.mesh.find_user_server(target_sid)
             if server_id:
                 self.mesh.forward_to_peer(server_id, event, data)
+
+    def _attach_reply_info(self, msgs):
+        """Attach reply_info to messages that have reply_to."""
+        for m in msgs:
+            if m.get("reply_to"):
+                ref = self.db.get_message(m["reply_to"])
+                if ref:
+                    m["reply_info"] = {"sender": ref["sender"], "text": ref["text"][:80]}
 
     def _broadcast_users(self, sync=True):
         local_users = []
