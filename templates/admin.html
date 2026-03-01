@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html lang="ar" dir="rtl" id="htmlRoot">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -102,22 +102,27 @@ th { color:var(--dim); font-weight:500; }
 <body>
 
 <div class="sidebar">
-    <div class="logo"><h2>هيلين WiFi</h2><small>لوحة التحكم</small></div>
-    <div class="nav on" onclick="show('dash')"><span>الرئيسية</span></div>
-    <div class="nav" onclick="show('users')"><span>المستخدمون</span></div>
-    <div class="nav" onclick="show('rooms')"><span>الغرف</span></div>
-    <div class="nav" onclick="show('msgs')"><span>الرسائل</span></div>
-    <div class="nav" onclick="show('files')"><span>الملفات</span></div>
-    <div class="nav" onclick="show('clients')"><span>العملاء</span></div>
-    <div class="nav" onclick="show('net')"><span>الشبكة</span></div>
+    <div class="logo"><h2 data-i18n="app_name">هيلين WiFi</h2><small data-i18n="control_panel">لوحة التحكم</small></div>
+    <div class="nav on" onclick="show('dash')"><span data-i18n="home">الرئيسية</span></div>
+    <div class="nav" onclick="show('users')"><span data-i18n="users">المستخدمون</span></div>
+    <div class="nav" onclick="show('rooms')"><span data-i18n="rooms">الغرف</span></div>
+    <div class="nav" onclick="show('msgs')"><span data-i18n="messages">الرسائل</span></div>
+    <div class="nav" onclick="show('files')"><span data-i18n="files">الملفات</span></div>
+    <div class="nav" onclick="show('clients')"><span data-i18n="clients">العملاء</span></div>
+    <div class="nav" onclick="show('net')"><span data-i18n="network">الشبكة</span></div>
     <div class="nav" onclick="show('mesh')"><span>Mesh</span></div>
-    <div class="nav" onclick="show('fiber')"><span>الراوترات</span></div>
-    <div class="nav" onclick="show('backup')"><span>النسخ الاحتياطي</span></div>
-    <div class="nav" onclick="show('recordings')"><span>التسجيلات</span></div>
-    <div class="nav" onclick="show('settings')"><span>الإعدادات</span></div>
-    <div class="nav" onclick="show('logs')"><span>السجلات</span></div>
-    <div class="nav" onclick="location.href='/client'" style="margin-top:16px;"><span>العميل</span></div>
-    <div class="nav" onclick="location.href='/logout'"><span>خروج</span></div>
+    <div class="nav" onclick="show('fiber')"><span data-i18n="routers">الراوترات</span></div>
+    <div class="nav" onclick="show('backup')"><span data-i18n="backup">النسخ الاحتياطي</span></div>
+    <div class="nav" onclick="show('recordings')"><span data-i18n="recordings">التسجيلات</span></div>
+    <div class="nav" onclick="show('settings')"><span data-i18n="settings">الإعدادات</span></div>
+    <div class="nav" onclick="show('logs')"><span data-i18n="logs">السجلات</span></div>
+    <div class="nav" onclick="location.href='/client'" style="margin-top:16px;"><span data-i18n="client">العميل</span></div>
+    <div class="nav" onclick="location.href='/logout'"><span data-i18n="logout">خروج</span></div>
+    <div style="margin-top:12px;padding:10px 14px;">
+        <select style="width:100%;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:#fff;border-radius:6px;padding:4px 8px;font-size:.78em;" onchange="I18N.setLang(this.value)" id="adminLangSelect">
+            <option value="ar">العربية</option><option value="en">English</option>
+        </select>
+    </div>
 </div>
 
 <!-- Toast -->
@@ -137,25 +142,25 @@ th { color:var(--dim); font-weight:500; }
 </div>
 
 <div class="main">
-    <div class="hdr"><h1>لوحة التحكم</h1><span class="sid" id="sId">...</span></div>
+    <div class="hdr"><h1 data-i18n="control_panel">لوحة التحكم</h1><span class="sid" id="sId">...</span></div>
 
     <!-- Dashboard -->
     <div class="sec on" id="s-dash">
         <div class="stats">
-            <div class="stat a"><div class="lbl">العملاء المتصلون</div><div class="val" id="vClients">0</div></div>
-            <div class="stat g"><div class="lbl">مسجلون</div><div class="val" id="vRegistered">0</div></div>
-            <div class="stat o"><div class="lbl">الرسائل</div><div class="val" id="vMsgs">0</div></div>
-            <div class="stat p"><div class="lbl">الملفات</div><div class="val" id="vFiles">0</div></div>
+            <div class="stat a"><div class="lbl" data-i18n="connected_clients">العملاء المتصلون</div><div class="val" id="vClients">0</div></div>
+            <div class="stat g"><div class="lbl" data-i18n="registered_users">مسجلون</div><div class="val" id="vRegistered">0</div></div>
+            <div class="stat o"><div class="lbl" data-i18n="messages">الرسائل</div><div class="val" id="vMsgs">0</div></div>
+            <div class="stat p"><div class="lbl" data-i18n="files">الملفات</div><div class="val" id="vFiles">0</div></div>
             <div class="stat f"><div class="lbl">Mesh</div><div class="val" id="vMesh">0</div></div>
-            <div class="stat"><div class="lbl">الغرف</div><div class="val" id="vRooms" style="color:var(--accent)">0</div></div>
-            <div class="stat"><div class="lbl">محظورون</div><div class="val" id="vBanned" style="color:var(--red)">0</div></div>
-            <div class="stat"><div class="lbl">حجم القاعدة</div><div class="val" id="vDbSize" style="font-size:1em;color:var(--dim)">--</div></div>
+            <div class="stat"><div class="lbl" data-i18n="rooms">الغرف</div><div class="val" id="vRooms" style="color:var(--accent)">0</div></div>
+            <div class="stat"><div class="lbl" data-i18n="banned_users">محظورون</div><div class="val" id="vBanned" style="color:var(--red)">0</div></div>
+            <div class="stat"><div class="lbl" data-i18n="db_size">حجم القاعدة</div><div class="val" id="vDbSize" style="font-size:1em;color:var(--dim)">--</div></div>
         </div>
         <div class="stats">
-            <div class="stat"><div class="lbl">التشغيل</div><div class="val" id="vUp" style="font-size:1.1em">--</div></div>
-            <div class="stat"><div class="lbl">IP</div><div class="val" id="vIp" style="font-size:1em;direction:ltr">--</div></div>
-            <div class="stat"><div class="lbl">المنفذ</div><div class="val" id="vPort">--</div></div>
-            <div class="stat" id="fiberStat" style="display:none"><div class="lbl">فايبر</div><div class="val" style="color:var(--fiber)">&#10003;</div></div>
+            <div class="stat"><div class="lbl" data-i18n="uptime">التشغيل</div><div class="val" id="vUp" style="font-size:1.1em">--</div></div>
+            <div class="stat"><div class="lbl" data-i18n="ip_address">IP</div><div class="val" id="vIp" style="font-size:1em;direction:ltr">--</div></div>
+            <div class="stat"><div class="lbl" data-i18n="port">المنفذ</div><div class="val" id="vPort">--</div></div>
+            <div class="stat" id="fiberStat" style="display:none"><div class="lbl" data-i18n="fiber">فايبر</div><div class="val" style="color:var(--fiber)">&#10003;</div></div>
         </div>
         <div class="two">
             <div class="panel"><div class="ptitle">آخر العملاء</div><table><thead><tr><th>المستخدم</th><th>IP</th></tr></thead><tbody id="tRC"></tbody></table></div>
@@ -283,6 +288,7 @@ th { color:var(--dim); font-weight:500; }
     </div>
 </div>
 
+<script src="/static/js/i18n.js"></script>
 <script>
 let cur='dash', allData=null;
 
@@ -464,27 +470,27 @@ function filterUsers(){
 
 // --- User actions ---
 async function banUser(u){
-    if(!confirm('حظر '+u+'؟')) return;
+    if(!confirm(t('confirm_ban').replace('{user}',u))) return;
     await apiPost('/api/admin/users/'+encodeURIComponent(u)+'/ban');
-    toast('تم حظر '+u); refresh();
+    toast(t('user_banned').replace('{user}',u)); refresh();
 }
 async function unbanUser(u){
     await apiPost('/api/admin/users/'+encodeURIComponent(u)+'/unban');
-    toast('تم إلغاء حظر '+u); refresh();
+    toast(t('user_unbanned').replace('{user}',u)); refresh();
 }
 async function kickUser(u){
     await apiPost('/api/admin/users/'+encodeURIComponent(u)+'/kick');
-    toast('تم طرد '+u); refresh();
+    toast(t('user_kicked').replace('{user}',u)); refresh();
 }
 async function deleteUser(u){
-    if(!confirm('حذف '+u+' نهائياً؟ سيتم حذف الحساب وعضويات الغرف.')) return;
+    if(!confirm(t('confirm_delete_user').replace('{user}',u))) return;
     await apiDelete('/api/admin/users/'+encodeURIComponent(u)+'/delete');
-    toast('تم حذف '+u); refresh();
+    toast(t('user_deleted').replace('{user}',u)); refresh();
 }
 async function delMsgsByUser(u){
-    if(!confirm('حذف جميع رسائل '+u+'؟')) return;
+    if(!confirm(t('confirm_delete_messages').replace('{user}',u))) return;
     await apiDelete('/api/admin/messages/by-user/'+encodeURIComponent(u));
-    toast('تم حذف رسائل '+u); refresh();
+    toast(t('messages_deleted_for').replace('{user}',u)); refresh();
 }
 function openResetPw(u){
     document.getElementById('resetUser').value=u;
@@ -494,22 +500,22 @@ function openResetPw(u){
 async function doResetPw(){
     let u=document.getElementById('resetUser').value;
     let pw=document.getElementById('resetPw').value;
-    if(!pw||pw.length<4){ toast('كلمة المرور قصيرة (4 أحرف على الأقل)',false); return; }
+    if(!pw||pw.length<4){ toast(t('password_too_short'),false); return; }
     let r=await apiPost('/api/admin/users/'+encodeURIComponent(u)+'/reset-password',{password:pw});
-    if(r.error){ toast(r.error,false); } else { toast('تم تعيين كلمة المرور'); closeModal('resetModal'); }
+    if(r.error){ toast(r.error,false); } else { toast(t('password_set')); closeModal('resetModal'); }
 }
 
 // --- Room actions ---
 async function deleteRoom(id){
-    if(!confirm('حذف الغرفة؟ سيتم حذف جميع الرسائل فيها.')) return;
+    if(!confirm(t('confirm_delete_room'))) return;
     await apiDelete('/api/admin/rooms/'+id);
-    toast('تم حذف الغرفة'); refresh();
+    toast(t('room_deleted')); refresh();
 }
 
 // --- Message actions ---
 async function deleteMsg(id){
     await apiDelete('/api/admin/messages/'+id);
-    toast('تم حذف الرسالة'); refresh();
+    toast(t('message_deleted')); refresh();
 }
 
 function searchMsgs(){
@@ -526,9 +532,9 @@ function searchMsgs(){
 
 // --- File actions ---
 async function deleteFile(id){
-    if(!confirm('حذف الملف؟')) return;
+    if(!confirm(t('confirm_delete_file'))) return;
     await apiDelete('/api/admin/files/'+id);
-    toast('تم حذف الملف'); refresh();
+    toast(t('file_deleted')); refresh();
 }
 
 // --- Settings ---
@@ -536,12 +542,12 @@ async function changeAdminPw(){
     let old=document.getElementById('setOldPw').value;
     let nw=document.getElementById('setNewPw').value;
     let conf=document.getElementById('setConfPw').value;
-    if(!old||!nw){ toast('أدخل كلمة المرور',false); return; }
-    if(nw!==conf){ toast('كلمة المرور غير متطابقة',false); return; }
-    if(nw.length<4){ toast('كلمة المرور قصيرة',false); return; }
+    if(!old||!nw){ toast(t('enter_password'),false); return; }
+    if(nw!==conf){ toast(t('password_mismatch'),false); return; }
+    if(nw.length<4){ toast(t('password_too_short'),false); return; }
     let r=await apiPost('/api/admin/change-password',{old_password:old,new_password:nw});
     if(r.error){ toast(r.error,false); } else {
-        toast('تم تغيير كلمة المرور');
+        toast(t('password_changed'));
         document.getElementById('setOldPw').value='';
         document.getElementById('setNewPw').value='';
         document.getElementById('setConfPw').value='';
@@ -554,13 +560,13 @@ async function meshConnect(){
     let port = document.getElementById('mPort').value.trim();
     if(!host) return;
     await apiPost('/api/admin/mesh/connect',{host,port});
-    toast('جاري الاتصال بـ '+host); refresh();
+    toast(t('connecting_to').replace('{host}',host)); refresh();
 }
 
 // --- Roles ---
 async function setRole(u, role){
     await apiPost('/api/admin/users/'+encodeURIComponent(u)+'/role', {role});
-    toast('تم تعيين صلاحية '+u+' إلى '+role); refresh();
+    toast(t('role_set').replace('{user}',u).replace('{role}',t(role))); refresh();
 }
 
 // --- Backup ---
@@ -568,7 +574,7 @@ async function createBackup(){
     let desc = document.getElementById('backupDesc').value.trim();
     let r = await apiPost('/api/admin/backup', {description: desc});
     if(r.status==='ok'){
-        toast('تم إنشاء النسخة الاحتياطية');
+        toast(t('backup_created'));
         document.getElementById('backupDesc').value='';
         loadBackups();
     } else { toast(r.error||'خطأ',false); }
@@ -593,17 +599,17 @@ async function loadBackups(){
 }
 
 async function restoreBackup(filename){
-    if(!confirm('استعادة النسخة الاحتياطية؟ سيتم استبدال جميع البيانات الحالية!')) return;
-    if(!confirm('هل أنت متأكد؟ هذا الإجراء لا يمكن التراجع عنه.')) return;
+    if(!confirm(t('confirm_restore'))) return;
+    if(!confirm(t('confirm_restore_2'))) return;
     let r = await apiPost('/api/admin/restore', {filename});
-    if(r.status==='ok'){ toast('تم استعادة النسخة الاحتياطية. يرجى إعادة تحميل الصفحة.'); setTimeout(()=>location.reload(), 2000); }
-    else { toast(r.error||'فشل الاستعادة',false); }
+    if(r.status==='ok'){ toast(t('backup_restored')); setTimeout(()=>location.reload(), 2000); }
+    else { toast(r.error||t('restore_failed'),false); }
 }
 
 async function deleteBackup(id){
-    if(!confirm('حذف النسخة الاحتياطية؟')) return;
+    if(!confirm(t('confirm_delete_backup'))) return;
     await apiDelete('/api/admin/backups/'+id);
-    toast('تم حذف النسخة'); loadBackups();
+    toast(t('backup_deleted')); loadBackups();
 }
 
 // --- Recordings ---
@@ -628,9 +634,9 @@ async function loadRecordings(){
 }
 
 async function deleteRecording(id){
-    if(!confirm('حذف التسجيل؟')) return;
+    if(!confirm(t('confirm_delete_recording'))) return;
     await apiDelete('/api/admin/recordings/'+id);
-    toast('تم حذف التسجيل'); loadRecordings();
+    toast(t('recording_deleted')); loadRecordings();
 }
 
 // Add recordings count to dashboard
@@ -641,6 +647,23 @@ refresh = async function(){
         document.getElementById('vRecCount').textContent = allData.recordings_count || 0;
     }
 };
+
+// --- i18n initialization ---
+(function(){
+    let el = document.getElementById('htmlRoot');
+    if(I18N.lang === 'en'){
+        el.setAttribute('lang','en');
+        el.setAttribute('dir','ltr');
+    }
+    document.getElementById('adminLangSelect').value = I18N.lang;
+    I18N.applyAll();
+    I18N.onLangChange(function(lang){
+        el.setAttribute('lang', lang);
+        el.setAttribute('dir', lang==='ar'?'rtl':'ltr');
+        document.getElementById('adminLangSelect').value = lang;
+        refresh();
+    });
+})();
 
 refresh();
 setInterval(refresh, 3000);
