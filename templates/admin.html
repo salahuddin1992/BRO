@@ -34,7 +34,7 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 .stat.p .val{color:var(--purple);} .stat.f .val{color:var(--fiber);}
 
 .panel { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:20px; margin-bottom:16px; }
-.ptitle { font-size:1em; font-weight:600; margin-bottom:12px; }
+.ptitle { font-size:1em; font-weight:600; margin-bottom:12px; display:flex; justify-content:space-between; align-items:center; }
 table { width:100%; border-collapse:collapse; }
 th,td { padding:8px 12px; text-align:right; border-bottom:1px solid var(--border); font-size:.82em; }
 th { color:var(--dim); font-weight:500; }
@@ -42,6 +42,8 @@ th { color:var(--dim); font-weight:500; }
 .badge-g { background:rgba(0,230,118,0.15); color:var(--green); }
 .badge-b { background:rgba(0,212,255,0.15); color:var(--accent); }
 .badge-f { background:rgba(0,255,136,0.15); color:var(--fiber); }
+.badge-r { background:rgba(255,82,82,0.15); color:var(--red); }
+.badge-o { background:rgba(255,145,0,0.15); color:var(--orange); }
 
 .sec { display:none; }
 .sec.on { display:block; }
@@ -57,8 +59,43 @@ th { color:var(--dim); font-weight:500; }
                border-radius:6px; color:#fff; outline:none; font-size:.85em; }
 .btn { padding:8px 16px; background:linear-gradient(135deg,#00d4ff,#0066ff); border:none;
        border-radius:6px; color:#fff; cursor:pointer; font-size:.85em; }
+.btn-sm { padding:4px 10px; font-size:.72em; border:none; border-radius:4px; cursor:pointer; color:#fff; }
+.btn-danger { background:var(--red); }
+.btn-warn { background:var(--orange); }
+.btn-green { background:var(--green); }
+.btn-accent { background:var(--accent); }
+
+.act-btns { display:flex; gap:4px; flex-wrap:wrap; }
 
 .two { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+
+/* Toast notification */
+.toast { position:fixed; bottom:20px; left:20px; padding:12px 20px; border-radius:8px; color:#fff; font-size:.85em;
+         z-index:100; transform:translateY(80px); opacity:0; transition:all .3s; }
+.toast.on { transform:translateY(0); opacity:1; }
+.toast.ok { background:rgba(0,230,118,0.9); }
+.toast.err { background:rgba(255,82,82,0.9); }
+
+/* Settings form */
+.settings-form { max-width:400px; }
+.settings-form label { display:block; color:var(--dim); font-size:.82em; margin-bottom:4px; margin-top:12px; }
+.settings-form input { width:100%; padding:8px 12px; background:rgba(255,255,255,0.05); border:1px solid var(--border);
+                       border-radius:6px; color:#fff; outline:none; font-size:.85em; }
+
+/* Search */
+.search-input { padding:8px 12px; background:rgba(255,255,255,0.05); border:1px solid var(--border);
+                border-radius:6px; color:#fff; outline:none; font-size:.82em; width:200px; }
+
+/* Modal */
+.modal-bg { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:50; }
+.modal-bg.on { display:flex; }
+.modal-box { background:#1a1a2e; border:1px solid var(--border); border-radius:12px; padding:24px; width:320px; }
+.modal-box h3 { color:var(--accent); margin-bottom:14px; text-align:center; }
+.modal-box input { width:100%; padding:8px 12px; background:rgba(255,255,255,0.05); border:1px solid var(--border);
+                   border-radius:6px; color:#fff; outline:none; font-size:.85em; margin-bottom:10px; }
+.modal-box .modal-btns { display:flex; gap:8px; }
+.modal-box .modal-btns button { flex:1; padding:8px; border:none; border-radius:6px; cursor:pointer; color:#fff; }
+
 @media(max-width:900px){ .two{grid-template-columns:1fr;} .sidebar{width:60px;padding:8px;} .sidebar span{display:none;} .main{margin-right:60px;} }
 </style>
 </head>
@@ -67,16 +104,34 @@ th { color:var(--dim); font-weight:500; }
 <div class="sidebar">
     <div class="logo"><h2>هيلين WiFi</h2><small>لوحة التحكم</small></div>
     <div class="nav on" onclick="show('dash')"><span>الرئيسية</span></div>
-    <div class="nav" onclick="show('clients')"><span>العملاء</span></div>
+    <div class="nav" onclick="show('users')"><span>المستخدمون</span></div>
     <div class="nav" onclick="show('rooms')"><span>الغرف</span></div>
-    <div class="nav" onclick="show('net')"><span>الشبكة</span></div>
-    <div class="nav" onclick="show('mesh')"><span>Mesh</span></div>
     <div class="nav" onclick="show('msgs')"><span>الرسائل</span></div>
     <div class="nav" onclick="show('files')"><span>الملفات</span></div>
+    <div class="nav" onclick="show('clients')"><span>العملاء</span></div>
+    <div class="nav" onclick="show('net')"><span>الشبكة</span></div>
+    <div class="nav" onclick="show('mesh')"><span>Mesh</span></div>
     <div class="nav" onclick="show('fiber')"><span>الراوترات</span></div>
+    <div class="nav" onclick="show('settings')"><span>الإعدادات</span></div>
     <div class="nav" onclick="show('logs')"><span>السجلات</span></div>
     <div class="nav" onclick="location.href='/client'" style="margin-top:16px;"><span>العميل</span></div>
     <div class="nav" onclick="location.href='/logout'"><span>خروج</span></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Reset Password Modal -->
+<div class="modal-bg" id="resetModal">
+    <div class="modal-box">
+        <h3>إعادة تعيين كلمة المرور</h3>
+        <input id="resetUser" readonly style="color:var(--dim)">
+        <input id="resetPw" type="password" placeholder="كلمة المرور الجديدة">
+        <div class="modal-btns">
+            <button class="btn" onclick="doResetPw()">تعيين</button>
+            <button style="background:rgba(255,255,255,0.08)" onclick="closeModal('resetModal')">إلغاء</button>
+        </div>
+    </div>
 </div>
 
 <div class="main">
@@ -85,13 +140,14 @@ th { color:var(--dim); font-weight:500; }
     <!-- Dashboard -->
     <div class="sec on" id="s-dash">
         <div class="stats">
-            <div class="stat a"><div class="lbl">العملاء</div><div class="val" id="vClients">0</div></div>
-            <div class="stat g"><div class="lbl">Mesh</div><div class="val" id="vMesh">0</div></div>
+            <div class="stat a"><div class="lbl">العملاء المتصلون</div><div class="val" id="vClients">0</div></div>
+            <div class="stat g"><div class="lbl">مسجلون</div><div class="val" id="vRegistered">0</div></div>
             <div class="stat o"><div class="lbl">الرسائل</div><div class="val" id="vMsgs">0</div></div>
             <div class="stat p"><div class="lbl">الملفات</div><div class="val" id="vFiles">0</div></div>
-            <div class="stat f"><div class="lbl">مستخدمون بعيدون</div><div class="val" id="vRemote">0</div></div>
-            <div class="stat"><div class="lbl">مسجلون</div><div class="val" id="vRegistered" style="color:var(--purple)">0</div></div>
+            <div class="stat f"><div class="lbl">Mesh</div><div class="val" id="vMesh">0</div></div>
             <div class="stat"><div class="lbl">الغرف</div><div class="val" id="vRooms" style="color:var(--accent)">0</div></div>
+            <div class="stat"><div class="lbl">محظورون</div><div class="val" id="vBanned" style="color:var(--red)">0</div></div>
+            <div class="stat"><div class="lbl">حجم القاعدة</div><div class="val" id="vDbSize" style="font-size:1em;color:var(--dim)">--</div></div>
         </div>
         <div class="stats">
             <div class="stat"><div class="lbl">التشغيل</div><div class="val" id="vUp" style="font-size:1.1em">--</div></div>
@@ -105,16 +161,47 @@ th { color:var(--dim); font-weight:500; }
         </div>
     </div>
 
-    <!-- Clients -->
-    <div class="sec" id="s-clients">
-        <div class="panel"><div class="ptitle">العملاء المتصلون</div>
-        <table><thead><tr><th>المعرف</th><th>المستخدم</th><th>IP</th><th>الوقت</th></tr></thead><tbody id="tCl"></tbody></table></div>
+    <!-- Users Management -->
+    <div class="sec" id="s-users">
+        <div class="panel">
+            <div class="ptitle">المستخدمون المسجلون <input class="search-input" id="userSearch" placeholder="بحث..." oninput="filterUsers()"></div>
+            <table><thead><tr><th>المستخدم</th><th>الاسم</th><th>الحالة</th><th>آخر ظهور</th><th>التسجيل</th><th>إجراءات</th></tr></thead>
+            <tbody id="tUsers"></tbody></table>
+        </div>
     </div>
 
-    <!-- Rooms -->
+    <!-- Rooms Management -->
     <div class="sec" id="s-rooms">
-        <div class="panel"><div class="ptitle">الغرف</div>
-        <table><thead><tr><th>المعرف</th><th>الاسم</th><th>الوصف</th><th>المنشئ</th><th>التاريخ</th></tr></thead><tbody id="tRooms"></tbody></table></div>
+        <div class="panel">
+            <div class="ptitle">الغرف</div>
+            <table><thead><tr><th>#</th><th>الاسم</th><th>الوصف</th><th>المنشئ</th><th>الأعضاء</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
+            <tbody id="tRooms"></tbody></table>
+        </div>
+    </div>
+
+    <!-- Messages Management -->
+    <div class="sec" id="s-msgs">
+        <div class="panel">
+            <div class="ptitle">الرسائل <input class="search-input" id="msgSearch" placeholder="بحث في الرسائل..." onkeydown="if(event.key==='Enter')searchMsgs()"></div>
+            <table><thead><tr><th>المعرف</th><th>المرسل</th><th>الرسالة</th><th>الغرفة</th><th>الوقت</th><th>إجراءات</th></tr></thead>
+            <tbody id="tMsg"></tbody></table>
+        </div>
+    </div>
+
+    <!-- Files Management -->
+    <div class="sec" id="s-files">
+        <div class="panel">
+            <div class="ptitle">الملفات</div>
+            <table><thead><tr><th>الملف</th><th>الحجم</th><th>الرافع</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
+            <tbody id="tFl"></tbody></table>
+        </div>
+    </div>
+
+    <!-- Connected Clients -->
+    <div class="sec" id="s-clients">
+        <div class="panel"><div class="ptitle">العملاء المتصلون</div>
+        <table><thead><tr><th>المعرف</th><th>المستخدم</th><th>IP</th><th>الحالة</th><th>الوقت</th><th>إجراءات</th></tr></thead>
+        <tbody id="tCl"></tbody></table></div>
     </div>
 
     <!-- Network -->
@@ -136,23 +223,27 @@ th { color:var(--dim); font-weight:500; }
         <table><thead><tr><th>المستخدم</th><th>السيرفر</th></tr></thead><tbody id="tRemUsers"></tbody></table></div>
     </div>
 
-    <!-- Messages -->
-    <div class="sec" id="s-msgs">
-        <div class="panel"><div class="ptitle">الرسائل</div>
-        <table><thead><tr><th>المرسل</th><th>الرسالة</th><th>الوقت</th></tr></thead><tbody id="tMsg"></tbody></table></div>
-    </div>
-
-    <!-- Files -->
-    <div class="sec" id="s-files">
-        <div class="panel"><div class="ptitle">الملفات</div>
-        <table><thead><tr><th>الملف</th><th>الحجم</th><th>الرافع</th><th>تحميل</th></tr></thead><tbody id="tFl"></tbody></table></div>
-    </div>
-
     <!-- Fiber Routers -->
     <div class="sec" id="s-fiber">
         <div class="panel"><div class="ptitle">الراوترات والكوابل المدعومة</div>
         <p style="color:var(--dim);margin-bottom:12px;font-size:.85em;">يعمل على جميع أنواع الراوترات</p>
         <table><thead><tr><th>النوع</th><th>الوصف</th></tr></thead><tbody id="tFiber"></tbody></table></div>
+    </div>
+
+    <!-- Settings -->
+    <div class="sec" id="s-settings">
+        <div class="panel">
+            <div class="ptitle">تغيير كلمة مرور الأدمن</div>
+            <div class="settings-form">
+                <label>كلمة المرور الحالية</label>
+                <input id="setOldPw" type="password">
+                <label>كلمة المرور الجديدة</label>
+                <input id="setNewPw" type="password">
+                <label>تأكيد كلمة المرور</label>
+                <input id="setConfPw" type="password">
+                <button class="btn" style="margin-top:16px;" onclick="changeAdminPw()">تغيير</button>
+            </div>
+        </div>
     </div>
 
     <!-- Logs -->
@@ -162,14 +253,15 @@ th { color:var(--dim); font-weight:500; }
 </div>
 
 <script>
-let cur='dash';
+let cur='dash', allData=null;
+
 function show(name){
     document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
     document.querySelectorAll('.nav').forEach(n=>n.classList.remove('on'));
     document.getElementById('s-'+name).classList.add('on');
-    let navs = document.querySelectorAll('.nav');
-    let map = ['dash','clients','rooms','net','mesh','msgs','files','fiber','logs'];
+    let map = ['dash','users','rooms','msgs','files','clients','net','mesh','fiber','settings','logs'];
     let idx = map.indexOf(name);
+    let navs = document.querySelectorAll('.nav');
     if(idx>=0 && navs[idx]) navs[idx].classList.add('on');
     cur=name;
 }
@@ -178,45 +270,92 @@ function esc(s){ let d=document.createElement('div'); d.textContent=s; return d.
 function fmtUp(s){ return Math.floor(s/3600)+'h '+Math.floor(s%3600/60)+'m '+(s%60)+'s'; }
 function fmtSize(b){ if(b<1024)return b+' B'; if(b<1048576)return(b/1024).toFixed(1)+' KB'; return(b/1048576).toFixed(1)+' MB'; }
 function fmtTime(iso){ return iso ? new Date(iso+'Z').toLocaleTimeString('ar-SA') : '--'; }
+function fmtDate(iso){ return iso ? new Date(iso+'Z').toLocaleDateString('ar-SA') : '--'; }
+function fmtDateTime(iso){ return iso ? fmtDate(iso)+' '+fmtTime(iso) : '--'; }
+
+function toast(msg, ok=true){
+    let el=document.getElementById('toast');
+    el.textContent=msg;
+    el.className='toast on '+(ok?'ok':'err');
+    setTimeout(()=>el.classList.remove('on'), 3000);
+}
+
+function closeModal(id){ document.getElementById(id).classList.remove('on'); }
+
+async function apiPost(url, body={}){
+    let r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+    return r.json();
+}
+async function apiDelete(url){
+    let r = await fetch(url, {method:'DELETE'});
+    return r.json();
+}
 
 async function refresh(){
     try {
         let r = await fetch('/api/admin/stats');
         let d = await r.json();
+        allData = d;
 
         document.getElementById('sId').textContent = d.server_id;
         document.getElementById('vClients').textContent = d.clients_count;
         document.getElementById('vMesh').textContent = d.mesh.peer_count;
         document.getElementById('vMsgs').textContent = d.messages_count;
-        document.getElementById('vRemote').textContent = d.mesh.remote_users_count || 0;
         document.getElementById('vFiles').textContent = d.files_count;
+        document.getElementById('vRegistered').textContent = d.registered_users || 0;
+        document.getElementById('vBanned').textContent = d.banned_users || 0;
+        document.getElementById('vRooms').textContent = (d.rooms||[]).length;
+        document.getElementById('vDbSize').textContent = fmtSize(d.db_size||0);
         document.getElementById('vUp').textContent = fmtUp(d.uptime);
         document.getElementById('vIp').textContent = d.host_ip;
         document.getElementById('vPort').textContent = d.port;
-        document.getElementById('vRegistered').textContent = d.registered_users || 0;
-        document.getElementById('vRooms').textContent = (d.rooms||[]).length;
         if(d.is_fiber) document.getElementById('fiberStat').style.display='block';
 
-        // Rooms
-        document.getElementById('tRooms').innerHTML = (d.rooms||[]).map(r=>
-            `<tr><td>${r.id}</td><td>${esc(r.name)}</td><td>${esc(r.description||'--')}</td>
-            <td>${esc(r.created_by||'--')}</td><td>${fmtTime(r.created_at)}</td></tr>`).join('')
-            || '<tr><td colspan="5" style="text-align:center;color:var(--dim)">لا توجد غرف</td></tr>';
-
-        // Recent clients
+        // Recent clients (dashboard)
         document.getElementById('tRC').innerHTML = d.clients.slice(-5).map(c=>
             `<tr><td>${esc(c.username||c.sid.slice(0,8))}</td><td style="direction:ltr">${c.ip||'--'}</td></tr>`).join('');
 
-        // Network brief
+        // Network brief (dashboard)
         document.getElementById('tRN').innerHTML = d.network.map(n=>
             `<tr><td>${esc(n.name)}</td><td style="direction:ltr">${n.ip}</td>
             <td><span class="badge ${n.is_fiber?'badge-f':'badge-b'}">${esc(n.type)}</span></td></tr>`).join('');
 
-        // Full clients
+        // Users table
+        renderUsers(d.all_users || []);
+
+        // Rooms
+        document.getElementById('tRooms').innerHTML = (d.rooms||[]).map(r=>
+            `<tr><td>${r.id}</td><td>${esc(r.name)}</td><td>${esc(r.description||'--')}</td>
+            <td>${esc(r.created_by||'--')}</td><td><span class="badge badge-b">${r.member_count||0}</span></td>
+            <td>${fmtDateTime(r.created_at)}</td>
+            <td>${r.name!=='عامة'?`<button class="btn-sm btn-danger" onclick="deleteRoom(${r.id})">حذف</button>`:''}</td></tr>`).join('')
+            || '<tr><td colspan="7" style="text-align:center;color:var(--dim)">لا توجد غرف</td></tr>';
+
+        // Messages
+        document.getElementById('tMsg').innerHTML = (d.messages||[]).slice().reverse().map(m=>
+            `<tr><td style="font-size:.72em;color:var(--dim)">${m.id}</td><td>${esc(m.sender)}</td>
+            <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.text)}</td>
+            <td>${m.room_id||'--'}</td><td>${fmtTime(m.timestamp)}</td>
+            <td><button class="btn-sm btn-danger" onclick="deleteMsg(${m.id})">حذف</button></td></tr>`).join('')
+            || '<tr><td colspan="6" style="text-align:center;color:var(--dim)">لا توجد رسائل</td></tr>';
+
+        // Files
+        document.getElementById('tFl').innerHTML = (d.files||[]).map(f=>
+            `<tr><td>${esc(f.name)}</td><td>${fmtSize(f.size)}</td><td>${esc(f.uploaded_by)}</td>
+            <td>${fmtDateTime(f.uploaded_at)}</td>
+            <td class="act-btns">
+                <a href="/api/download/${encodeURIComponent(f.saved_as)}" class="btn-sm btn-accent" style="text-decoration:none">تحميل</a>
+                <button class="btn-sm btn-danger" onclick="deleteFile(${f.id})">حذف</button>
+            </td></tr>`).join('')
+            || '<tr><td colspan="5" style="text-align:center;color:var(--dim)">لا توجد ملفات</td></tr>';
+
+        // Connected clients
         document.getElementById('tCl').innerHTML = d.clients.map(c=>
-            `<tr><td style="direction:ltr;font-family:monospace;font-size:.75em">${c.sid}</td>
+            `<tr><td style="direction:ltr;font-family:monospace;font-size:.72em">${c.sid}</td>
             <td>${esc(c.username||'--')}</td><td style="direction:ltr">${c.ip||'--'}</td>
-            <td>${fmtTime(c.connected_at)}</td></tr>`).join('');
+            <td><span class="badge badge-g">${esc(c.status||'online')}</span></td>
+            <td>${fmtTime(c.connected_at)}</td>
+            <td>${c.username?`<button class="btn-sm btn-warn" onclick="kickUser('${esc(c.username)}')">طرد</button>`:''}</td></tr>`).join('');
 
         // Network full
         document.getElementById('tNet').innerHTML = d.network.map(n=>
@@ -226,40 +365,22 @@ async function refresh(){
             <td>${n.is_fiber?'<span class="badge badge-f">فايبر</span>':'--'}</td>
             <td><span class="badge badge-g">فعال</span></td></tr>`).join('');
 
-        // Messages
-        document.getElementById('tMsg').innerHTML = (d.messages||[]).slice().reverse().map(m=>
-            `<tr><td>${esc(m.sender)}</td><td>${esc(m.text)}</td><td>${fmtTime(m.timestamp)}</td></tr>`).join('')
-            || '<tr><td colspan="3" style="text-align:center;color:var(--dim)">لا توجد رسائل</td></tr>';
-
-        // Files
-        document.getElementById('tFl').innerHTML = (d.files||[]).map(f=>
-            `<tr><td>${esc(f.name)}</td><td>${fmtSize(f.size)}</td><td>${esc(f.uploaded_by)}</td>
-            <td><a href="/api/download/${encodeURIComponent(f.saved_as)}" style="color:var(--accent)">تحميل</a></td></tr>`).join('')
-            || '<tr><td colspan="4" style="text-align:center;color:var(--dim)">لا توجد ملفات</td></tr>';
-
-        // Mesh peers
+        // Mesh
         let peers = d.mesh.peers||[];
         let remUsers = d.remote_users||[];
-        if(peers.length){
-            document.getElementById('tMesh').innerHTML = peers.map(p=>{
-                let uCount = remUsers.filter(u=>u.server_id===p.server_id).length;
-                return `<tr><td style="direction:ltr;font-family:monospace;font-size:.75em">${esc(p.server_id||'')}</td>
-                <td style="direction:ltr">${esc(p.host||'--')}</td>
-                <td>${p.port||'--'}</td>
-                <td><span class="badge badge-b">${uCount}</span></td>
-                <td>${fmtTime(p.last_seen)}</td></tr>`;
-            }).join('');
-        } else {
-            document.getElementById('tMesh').innerHTML =
-                '<tr><td colspan="5" style="text-align:center;color:var(--dim)">لا توجد خوادم</td></tr>';
-        }
-        // Remote users
+        document.getElementById('tMesh').innerHTML = peers.length ? peers.map(p=>{
+            let uCount = remUsers.filter(u=>u.server_id===p.server_id).length;
+            return `<tr><td style="direction:ltr;font-family:monospace;font-size:.72em">${esc(p.server_id||'')}</td>
+            <td style="direction:ltr">${esc(p.host||'--')}</td><td>${p.port||'--'}</td>
+            <td><span class="badge badge-b">${uCount}</span></td><td>${fmtTime(p.last_seen)}</td></tr>`;
+        }).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--dim)">لا توجد خوادم</td></tr>';
+
         document.getElementById('tRemUsers').innerHTML = remUsers.length ? remUsers.map(u=>
             `<tr><td>${esc(u.username||'--')}</td>
-            <td style="direction:ltr;font-family:monospace;font-size:.75em">${esc(u.server_id||'--')}</td></tr>`).join('')
+            <td style="direction:ltr;font-family:monospace;font-size:.72em">${esc(u.server_id||'--')}</td></tr>`).join('')
             : '<tr><td colspan="2" style="text-align:center;color:var(--dim)">لا يوجد مستخدمون بعيدون</td></tr>';
 
-        // Fiber types
+        // Fiber
         if(d.fiber_types){
             document.getElementById('tFiber').innerHTML = Object.entries(d.fiber_types).map(([k,v])=>
                 `<tr><td><span class="badge badge-f">${k}</span></td><td>${esc(v)}</td></tr>`).join('');
@@ -274,12 +395,126 @@ async function refresh(){
     } catch(e){ console.error(e); }
 }
 
+function renderUsers(users){
+    let search = (document.getElementById('userSearch').value||'').toLowerCase();
+    let filtered = search ? users.filter(u=> u.username.toLowerCase().includes(search) || (u.display_name||'').toLowerCase().includes(search)) : users;
+    document.getElementById('tUsers').innerHTML = filtered.map(u=>{
+        let statusBadge = u.banned ? '<span class="badge badge-r">محظور</span>'
+            : u.status==='online' ? '<span class="badge badge-g">متصل</span>'
+            : u.status==='away' ? '<span class="badge badge-o">بعيد</span>'
+            : u.status==='busy' ? '<span class="badge badge-r">مشغول</span>'
+            : '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--dim)">غير متصل</span>';
+        return `<tr><td><strong>${esc(u.username)}</strong></td><td>${esc(u.display_name||'--')}</td>
+            <td>${statusBadge}</td><td>${fmtDateTime(u.last_seen)}</td><td>${fmtDate(u.created_at)}</td>
+            <td><div class="act-btns">
+                ${u.banned
+                    ? `<button class="btn-sm btn-green" onclick="unbanUser('${esc(u.username)}')">إلغاء حظر</button>`
+                    : `<button class="btn-sm btn-warn" onclick="banUser('${esc(u.username)}')">حظر</button>`}
+                <button class="btn-sm btn-accent" onclick="openResetPw('${esc(u.username)}')">كلمة مرور</button>
+                <button class="btn-sm btn-warn" onclick="kickUser('${esc(u.username)}')">طرد</button>
+                <button class="btn-sm btn-danger" onclick="delMsgsByUser('${esc(u.username)}')">حذف رسائل</button>
+                <button class="btn-sm btn-danger" onclick="deleteUser('${esc(u.username)}')">حذف</button>
+            </div></td></tr>`;
+    }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--dim)">لا يوجد مستخدمون</td></tr>';
+}
+
+function filterUsers(){
+    if(allData) renderUsers(allData.all_users || []);
+}
+
+// --- User actions ---
+async function banUser(u){
+    if(!confirm('حظر '+u+'؟')) return;
+    await apiPost('/api/admin/users/'+encodeURIComponent(u)+'/ban');
+    toast('تم حظر '+u); refresh();
+}
+async function unbanUser(u){
+    await apiPost('/api/admin/users/'+encodeURIComponent(u)+'/unban');
+    toast('تم إلغاء حظر '+u); refresh();
+}
+async function kickUser(u){
+    await apiPost('/api/admin/users/'+encodeURIComponent(u)+'/kick');
+    toast('تم طرد '+u); refresh();
+}
+async function deleteUser(u){
+    if(!confirm('حذف '+u+' نهائياً؟ سيتم حذف الحساب وعضويات الغرف.')) return;
+    await apiDelete('/api/admin/users/'+encodeURIComponent(u)+'/delete');
+    toast('تم حذف '+u); refresh();
+}
+async function delMsgsByUser(u){
+    if(!confirm('حذف جميع رسائل '+u+'؟')) return;
+    await apiDelete('/api/admin/messages/by-user/'+encodeURIComponent(u));
+    toast('تم حذف رسائل '+u); refresh();
+}
+function openResetPw(u){
+    document.getElementById('resetUser').value=u;
+    document.getElementById('resetPw').value='';
+    document.getElementById('resetModal').classList.add('on');
+}
+async function doResetPw(){
+    let u=document.getElementById('resetUser').value;
+    let pw=document.getElementById('resetPw').value;
+    if(!pw||pw.length<4){ toast('كلمة المرور قصيرة (4 أحرف على الأقل)',false); return; }
+    let r=await apiPost('/api/admin/users/'+encodeURIComponent(u)+'/reset-password',{password:pw});
+    if(r.error){ toast(r.error,false); } else { toast('تم تعيين كلمة المرور'); closeModal('resetModal'); }
+}
+
+// --- Room actions ---
+async function deleteRoom(id){
+    if(!confirm('حذف الغرفة؟ سيتم حذف جميع الرسائل فيها.')) return;
+    await apiDelete('/api/admin/rooms/'+id);
+    toast('تم حذف الغرفة'); refresh();
+}
+
+// --- Message actions ---
+async function deleteMsg(id){
+    await apiDelete('/api/admin/messages/'+id);
+    toast('تم حذف الرسالة'); refresh();
+}
+
+function searchMsgs(){
+    let q=document.getElementById('msgSearch').value.trim();
+    if(!q || !allData) return;
+    let msgs = (allData.messages||[]).filter(m=> m.text.includes(q) || m.sender.includes(q));
+    document.getElementById('tMsg').innerHTML = msgs.slice().reverse().map(m=>
+        `<tr><td style="font-size:.72em;color:var(--dim)">${m.id}</td><td>${esc(m.sender)}</td>
+        <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.text)}</td>
+        <td>${m.room_id||'--'}</td><td>${fmtTime(m.timestamp)}</td>
+        <td><button class="btn-sm btn-danger" onclick="deleteMsg(${m.id})">حذف</button></td></tr>`).join('')
+        || '<tr><td colspan="6" style="text-align:center;color:var(--dim)">لا توجد نتائج</td></tr>';
+}
+
+// --- File actions ---
+async function deleteFile(id){
+    if(!confirm('حذف الملف؟')) return;
+    await apiDelete('/api/admin/files/'+id);
+    toast('تم حذف الملف'); refresh();
+}
+
+// --- Settings ---
+async function changeAdminPw(){
+    let old=document.getElementById('setOldPw').value;
+    let nw=document.getElementById('setNewPw').value;
+    let conf=document.getElementById('setConfPw').value;
+    if(!old||!nw){ toast('أدخل كلمة المرور',false); return; }
+    if(nw!==conf){ toast('كلمة المرور غير متطابقة',false); return; }
+    if(nw.length<4){ toast('كلمة المرور قصيرة',false); return; }
+    let r=await apiPost('/api/admin/change-password',{old_password:old,new_password:nw});
+    if(r.error){ toast(r.error,false); } else {
+        toast('تم تغيير كلمة المرور');
+        document.getElementById('setOldPw').value='';
+        document.getElementById('setNewPw').value='';
+        document.getElementById('setConfPw').value='';
+    }
+}
+
+// --- Mesh ---
 async function meshConnect(){
     let host = document.getElementById('mHost').value.trim();
     let port = document.getElementById('mPort').value.trim();
     if(!host) return;
-    await fetch('/api/admin/mesh/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({host,port})});
-    refresh();
+    await apiPost('/api/admin/mesh/connect',{host,port});
+    toast('جاري الاتصال بـ '+host); refresh();
 }
 
 refresh();
