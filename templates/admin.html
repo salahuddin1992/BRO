@@ -112,6 +112,8 @@ th { color:var(--dim); font-weight:500; }
     <div class="nav" onclick="show('net')"><span>الشبكة</span></div>
     <div class="nav" onclick="show('mesh')"><span>Mesh</span></div>
     <div class="nav" onclick="show('fiber')"><span>الراوترات</span></div>
+    <div class="nav" onclick="show('backup')"><span>النسخ الاحتياطي</span></div>
+    <div class="nav" onclick="show('recordings')"><span>التسجيلات</span></div>
     <div class="nav" onclick="show('settings')"><span>الإعدادات</span></div>
     <div class="nav" onclick="show('logs')"><span>السجلات</span></div>
     <div class="nav" onclick="location.href='/client'" style="margin-top:16px;"><span>العميل</span></div>
@@ -165,7 +167,7 @@ th { color:var(--dim); font-weight:500; }
     <div class="sec" id="s-users">
         <div class="panel">
             <div class="ptitle">المستخدمون المسجلون <input class="search-input" id="userSearch" placeholder="بحث..." oninput="filterUsers()"></div>
-            <table><thead><tr><th>المستخدم</th><th>الاسم</th><th>الحالة</th><th>آخر ظهور</th><th>التسجيل</th><th>إجراءات</th></tr></thead>
+            <table><thead><tr><th>المستخدم</th><th>الاسم</th><th>الصلاحية</th><th>الحالة</th><th>آخر ظهور</th><th>التسجيل</th><th>إجراءات</th></tr></thead>
             <tbody id="tUsers"></tbody></table>
         </div>
     </div>
@@ -230,6 +232,35 @@ th { color:var(--dim); font-weight:500; }
         <table><thead><tr><th>النوع</th><th>الوصف</th></tr></thead><tbody id="tFiber"></tbody></table></div>
     </div>
 
+    <!-- Backup & Restore -->
+    <div class="sec" id="s-backup">
+        <div class="two">
+            <div class="panel">
+                <div class="ptitle">إنشاء نسخة احتياطية</div>
+                <div class="settings-form">
+                    <label>وصف (اختياري)</label>
+                    <input id="backupDesc" placeholder="وصف النسخة الاحتياطية">
+                    <button class="btn" style="margin-top:12px;" onclick="createBackup()">إنشاء نسخة احتياطية</button>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="ptitle">استعادة نسخة احتياطية</div>
+                <p style="color:var(--orange);font-size:.82em;margin-bottom:12px;">تحذير: سيتم استبدال البيانات الحالية بالنسخة المختارة</p>
+                <table><thead><tr><th>الملف</th><th>الحجم</th><th>التاريخ</th><th>الوصف</th><th>إجراءات</th></tr></thead>
+                <tbody id="tBackups"></tbody></table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recordings -->
+    <div class="sec" id="s-recordings">
+        <div class="panel">
+            <div class="ptitle">تسجيلات المكالمات <span class="badge badge-b" id="vRecCount">0</span></div>
+            <table><thead><tr><th>المتصل</th><th>المتلقي</th><th>النوع</th><th>المدة</th><th>الحجم</th><th>التاريخ</th><th>إجراءات</th></tr></thead>
+            <tbody id="tRecs"></tbody></table>
+        </div>
+    </div>
+
     <!-- Settings -->
     <div class="sec" id="s-settings">
         <div class="panel">
@@ -259,7 +290,7 @@ function show(name){
     document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
     document.querySelectorAll('.nav').forEach(n=>n.classList.remove('on'));
     document.getElementById('s-'+name).classList.add('on');
-    let map = ['dash','users','rooms','msgs','files','clients','net','mesh','fiber','settings','logs'];
+    let map = ['dash','users','rooms','msgs','files','clients','net','mesh','fiber','backup','recordings','settings','logs'];
     let idx = map.indexOf(name);
     let navs = document.querySelectorAll('.nav');
     if(idx>=0 && navs[idx]) navs[idx].classList.add('on');
@@ -404,7 +435,16 @@ function renderUsers(users){
             : u.status==='away' ? '<span class="badge badge-o">بعيد</span>'
             : u.status==='busy' ? '<span class="badge badge-r">مشغول</span>'
             : '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--dim)">غير متصل</span>';
+        let roleBadge = u.role==='admin' ? '<span class="badge badge-r">مدير</span>'
+            : u.role==='moderator' ? '<span class="badge badge-o">مشرف</span>'
+            : '<span class="badge badge-b">مستخدم</span>';
+        let roleSelect = `<select style="background:rgba(255,255,255,0.05);border:1px solid var(--border);color:#fff;border-radius:4px;padding:2px 4px;font-size:.72em;" onchange="setRole('${esc(u.username)}',this.value)">
+            <option value="user" ${u.role==='user'?'selected':''}>مستخدم</option>
+            <option value="moderator" ${u.role==='moderator'?'selected':''}>مشرف</option>
+            <option value="admin" ${u.role==='admin'?'selected':''}>مدير</option>
+        </select>`;
         return `<tr><td><strong>${esc(u.username)}</strong></td><td>${esc(u.display_name||'--')}</td>
+            <td>${roleBadge} ${roleSelect}</td>
             <td>${statusBadge}</td><td>${fmtDateTime(u.last_seen)}</td><td>${fmtDate(u.created_at)}</td>
             <td><div class="act-btns">
                 ${u.banned
@@ -415,7 +455,7 @@ function renderUsers(users){
                 <button class="btn-sm btn-danger" onclick="delMsgsByUser('${esc(u.username)}')">حذف رسائل</button>
                 <button class="btn-sm btn-danger" onclick="deleteUser('${esc(u.username)}')">حذف</button>
             </div></td></tr>`;
-    }).join('') || '<tr><td colspan="6" style="text-align:center;color:var(--dim)">لا يوجد مستخدمون</td></tr>';
+    }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--dim)">لا يوجد مستخدمون</td></tr>';
 }
 
 function filterUsers(){
@@ -517,8 +557,95 @@ async function meshConnect(){
     toast('جاري الاتصال بـ '+host); refresh();
 }
 
+// --- Roles ---
+async function setRole(u, role){
+    await apiPost('/api/admin/users/'+encodeURIComponent(u)+'/role', {role});
+    toast('تم تعيين صلاحية '+u+' إلى '+role); refresh();
+}
+
+// --- Backup ---
+async function createBackup(){
+    let desc = document.getElementById('backupDesc').value.trim();
+    let r = await apiPost('/api/admin/backup', {description: desc});
+    if(r.status==='ok'){
+        toast('تم إنشاء النسخة الاحتياطية');
+        document.getElementById('backupDesc').value='';
+        loadBackups();
+    } else { toast(r.error||'خطأ',false); }
+}
+
+async function loadBackups(){
+    try {
+        let r = await fetch('/api/admin/backups');
+        let d = await r.json();
+        document.getElementById('tBackups').innerHTML = (d.backups||[]).map(b=>
+            `<tr><td style="font-size:.78em;direction:ltr">${esc(b.filename)}</td>
+            <td>${fmtSize(b.size)}</td>
+            <td>${fmtDateTime(b.created_at)}</td>
+            <td>${esc(b.description||'--')}</td>
+            <td class="act-btns">
+                <a href="/api/admin/backup/download/${encodeURIComponent(b.filename)}" class="btn-sm btn-accent" style="text-decoration:none">تحميل</a>
+                <button class="btn-sm btn-green" onclick="restoreBackup('${esc(b.filename)}')">استعادة</button>
+                <button class="btn-sm btn-danger" onclick="deleteBackup(${b.id})">حذف</button>
+            </td></tr>`).join('')
+            || '<tr><td colspan="5" style="text-align:center;color:var(--dim)">لا توجد نسخ احتياطية</td></tr>';
+    } catch(e){ console.error(e); }
+}
+
+async function restoreBackup(filename){
+    if(!confirm('استعادة النسخة الاحتياطية؟ سيتم استبدال جميع البيانات الحالية!')) return;
+    if(!confirm('هل أنت متأكد؟ هذا الإجراء لا يمكن التراجع عنه.')) return;
+    let r = await apiPost('/api/admin/restore', {filename});
+    if(r.status==='ok'){ toast('تم استعادة النسخة الاحتياطية. يرجى إعادة تحميل الصفحة.'); setTimeout(()=>location.reload(), 2000); }
+    else { toast(r.error||'فشل الاستعادة',false); }
+}
+
+async function deleteBackup(id){
+    if(!confirm('حذف النسخة الاحتياطية؟')) return;
+    await apiDelete('/api/admin/backups/'+id);
+    toast('تم حذف النسخة'); loadBackups();
+}
+
+// --- Recordings ---
+async function loadRecordings(){
+    try {
+        let r = await fetch('/api/admin/recordings');
+        let d = await r.json();
+        let recs = d.recordings || [];
+        document.getElementById('vRecCount').textContent = recs.length;
+        document.getElementById('tRecs').innerHTML = recs.map(r=>{
+            let dur = r.duration ? Math.floor(r.duration/60)+'m '+r.duration%60+'s' : '--';
+            return `<tr><td>${esc(r.caller)}</td><td>${esc(r.callee)}</td>
+            <td><span class="badge badge-b">${r.call_type==='video'?'فيديو':'صوت'}</span></td>
+            <td>${dur}</td><td>${fmtSize(r.size)}</td>
+            <td>${fmtDateTime(r.recorded_at)}</td>
+            <td class="act-btns">
+                <a href="/api/recording/${encodeURIComponent(r.filename)}" class="btn-sm btn-accent" style="text-decoration:none">تحميل</a>
+                <button class="btn-sm btn-danger" onclick="deleteRecording(${r.id})">حذف</button>
+            </td></tr>`;
+        }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--dim)">لا توجد تسجيلات</td></tr>';
+    } catch(e){ console.error(e); }
+}
+
+async function deleteRecording(id){
+    if(!confirm('حذف التسجيل؟')) return;
+    await apiDelete('/api/admin/recordings/'+id);
+    toast('تم حذف التسجيل'); loadRecordings();
+}
+
+// Add recordings count to dashboard
+let origRefresh = refresh;
+refresh = async function(){
+    await origRefresh();
+    if(allData){
+        document.getElementById('vRecCount').textContent = allData.recordings_count || 0;
+    }
+};
+
 refresh();
 setInterval(refresh, 3000);
+loadBackups();
+loadRecordings();
 </script>
 </body>
 </html>

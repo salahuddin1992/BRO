@@ -1,10 +1,11 @@
 """
 Helen WiFi - SQLite Database
-Users, Messages, Files, Rooms, Bans
+Users, Messages, Files, Rooms, Bans, Roles, Encryption Keys, Backup
 """
 import sqlite3
 import threading
 import os
+import shutil
 import logging
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -12,6 +13,20 @@ from werkzeug.security import generate_password_hash, check_password_hash
 logger = logging.getLogger("BRO.db")
 
 IMAGE_EXTS = {'png','jpg','jpeg','gif','bmp','webp','svg'}
+
+# User roles
+ROLE_USER = 'user'
+ROLE_MODERATOR = 'moderator'
+ROLE_ADMIN = 'admin'
+
+ROLE_PERMISSIONS = {
+    ROLE_USER: ['send_message', 'create_room', 'join_room', 'upload_file', 'make_call'],
+    ROLE_MODERATOR: ['send_message', 'create_room', 'join_room', 'upload_file', 'make_call',
+                     'delete_message', 'kick_user', 'mute_user', 'manage_rooms'],
+    ROLE_ADMIN: ['send_message', 'create_room', 'join_room', 'upload_file', 'make_call',
+                 'delete_message', 'kick_user', 'mute_user', 'manage_rooms',
+                 'ban_user', 'delete_user', 'manage_roles', 'manage_server', 'backup'],
+}
 
 
 class Database:
@@ -38,6 +53,8 @@ class Database:
                 display_name TEXT,
                 status TEXT DEFAULT 'online',
                 banned INTEGER DEFAULT 0,
+                role TEXT DEFAULT 'user',
+                public_key TEXT,
                 created_at TEXT DEFAULT (datetime('now')),
                 last_seen TEXT DEFAULT (datetime('now'))
             );
@@ -65,6 +82,7 @@ class Database:
                 target TEXT,
                 room_id INTEGER,
                 reply_to INTEGER,
+                encrypted INTEGER DEFAULT 0,
                 deleted INTEGER DEFAULT 0,
                 timestamp TEXT DEFAULT (datetime('now')),
                 FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
@@ -86,24 +104,43 @@ class Database:
                 value TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS recordings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                caller TEXT NOT NULL,
+                callee TEXT NOT NULL,
+                call_type TEXT DEFAULT 'audio',
+                filename TEXT NOT NULL,
+                size INTEGER DEFAULT 0,
+                duration INTEGER DEFAULT 0,
+                recorded_at TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS backups (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                filename TEXT NOT NULL,
+                size INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                description TEXT DEFAULT ''
+            );
+
             CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id);
             CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
             CREATE INDEX IF NOT EXISTS idx_messages_target ON messages(target);
             CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(timestamp);
         """)
         # Add columns if upgrading from older schema
-        try:
-            conn.execute("ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE messages ADD COLUMN reply_to INTEGER")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0")
-        except sqlite3.OperationalError:
-            pass
+        for col_sql in [
+            "ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0",
+            "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'",
+            "ALTER TABLE users ADD COLUMN public_key TEXT",
+            "ALTER TABLE messages ADD COLUMN reply_to INTEGER",
+            "ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0",
+            "ALTER TABLE messages ADD COLUMN encrypted INTEGER DEFAULT 0",
+        ]:
+            try:
+                conn.execute(col_sql)
+            except sqlite3.OperationalError:
+                pass
         # Default general room
         cur = conn.execute("SELECT id FROM rooms WHERE name=?", ("عامة",))
         if not cur.fetchone():
@@ -118,8 +155,8 @@ class Database:
         pw_hash = generate_password_hash(password)
         try:
             conn.execute(
-                "INSERT INTO users (username, password_hash, display_name) VALUES (?, ?, ?)",
-                (username, pw_hash, display_name or username))
+                "INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)",
+                (username, pw_hash, display_name or username, ROLE_USER))
             conn.commit()
             self.join_room_by_name("عامة", username)
             return True
@@ -158,14 +195,14 @@ class Database:
 
     def get_user(self, username):
         conn = self._get_conn()
-        row = conn.execute("SELECT username, display_name, status, banned, last_seen, created_at FROM users WHERE username=?",
+        row = conn.execute("SELECT username, display_name, status, banned, role, public_key, last_seen, created_at FROM users WHERE username=?",
                            (username,)).fetchone()
         return dict(row) if row else None
 
     def get_all_users(self):
         conn = self._get_conn()
         rows = conn.execute(
-            "SELECT username, display_name, status, banned, last_seen, created_at FROM users ORDER BY username"
+            "SELECT username, display_name, status, banned, role, last_seen, created_at FROM users ORDER BY username"
         ).fetchall()
         return [dict(r) for r in rows]
 
@@ -211,6 +248,48 @@ class Database:
         conn.execute("UPDATE users SET password_hash=? WHERE username=?",
                      (generate_password_hash(new_password), username))
         conn.commit()
+
+    # ===================== Roles =====================
+
+    def get_user_role(self, username):
+        conn = self._get_conn()
+        row = conn.execute("SELECT role FROM users WHERE username=?", (username,)).fetchone()
+        return row["role"] if row else ROLE_USER
+
+    def set_user_role(self, username, role):
+        if role not in ROLE_PERMISSIONS:
+            return False
+        conn = self._get_conn()
+        conn.execute("UPDATE users SET role=? WHERE username=?", (role, username))
+        conn.commit()
+        return True
+
+    def has_permission(self, username, permission):
+        role = self.get_user_role(username)
+        return permission in ROLE_PERMISSIONS.get(role, [])
+
+    def get_role_permissions(self, role):
+        return ROLE_PERMISSIONS.get(role, [])
+
+    # ===================== Public Keys (E2E) =====================
+
+    def set_public_key(self, username, public_key):
+        conn = self._get_conn()
+        conn.execute("UPDATE users SET public_key=? WHERE username=?", (public_key, username))
+        conn.commit()
+
+    def get_public_key(self, username):
+        conn = self._get_conn()
+        row = conn.execute("SELECT public_key FROM users WHERE username=?", (username,)).fetchone()
+        return row["public_key"] if row else None
+
+    def get_public_keys(self, usernames):
+        conn = self._get_conn()
+        placeholders = ",".join("?" for _ in usernames)
+        rows = conn.execute(
+            f"SELECT username, public_key FROM users WHERE username IN ({placeholders}) AND public_key IS NOT NULL",
+            usernames).fetchall()
+        return {r["username"]: r["public_key"] for r in rows}
 
     # ===================== Rooms =====================
 
@@ -295,12 +374,12 @@ class Database:
 
     # ===================== Messages =====================
 
-    def save_message(self, sender, text, target=None, room_id=None, reply_to=None):
+    def save_message(self, sender, text, target=None, room_id=None, reply_to=None, encrypted=False):
         conn = self._get_conn()
         ts = datetime.utcnow().isoformat()
         cur = conn.execute(
-            "INSERT INTO messages (sender, text, target, room_id, reply_to, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
-            (sender, text, target, room_id, reply_to, ts))
+            "INSERT INTO messages (sender, text, target, room_id, reply_to, encrypted, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (sender, text, target, room_id, reply_to, 1 if encrypted else 0, ts))
         conn.commit()
         return {"id": cur.lastrowid, "timestamp": ts}
 
@@ -314,7 +393,7 @@ class Database:
                 params.append(before_id)
             params.append(limit)
             rows = conn.execute(
-                f"SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages WHERE room_id=? AND deleted=0 {before_clause} ORDER BY id DESC LIMIT ?",
+                f"SELECT id, sender, text, target, room_id, reply_to, encrypted, deleted, timestamp FROM messages WHERE room_id=? AND deleted=0 {before_clause} ORDER BY id DESC LIMIT ?",
                 params).fetchall()
         elif target:
             params = [target, target]
@@ -322,7 +401,7 @@ class Database:
                 params.append(before_id)
             params.append(limit)
             rows = conn.execute(
-                f"SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages WHERE (target=? OR sender=?) AND deleted=0 {before_clause} ORDER BY id DESC LIMIT ?",
+                f"SELECT id, sender, text, target, room_id, reply_to, encrypted, deleted, timestamp FROM messages WHERE (target=? OR sender=?) AND deleted=0 {before_clause} ORDER BY id DESC LIMIT ?",
                 params).fetchall()
         else:
             params = []
@@ -330,7 +409,7 @@ class Database:
                 params.append(before_id)
             params.append(limit)
             rows = conn.execute(
-                f"SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages WHERE deleted=0 {before_clause} ORDER BY id DESC LIMIT ?",
+                f"SELECT id, sender, text, target, room_id, reply_to, encrypted, deleted, timestamp FROM messages WHERE deleted=0 {before_clause} ORDER BY id DESC LIMIT ?",
                 params).fetchall()
         return list(reversed([dict(r) for r in rows]))
 
@@ -342,7 +421,7 @@ class Database:
             params.append(before_id)
         params.append(limit)
         rows = conn.execute(f"""
-            SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages
+            SELECT id, sender, text, target, room_id, reply_to, encrypted, deleted, timestamp FROM messages
             WHERE ((sender=? AND target=?) OR (sender=? AND target=?)) AND deleted=0
             {before_clause} ORDER BY id DESC LIMIT ?
         """, params).fetchall()
@@ -371,7 +450,6 @@ class Database:
                 "SELECT id, sender, text, room_id, timestamp FROM messages WHERE text LIKE ? AND room_id=? AND deleted=0 ORDER BY id DESC LIMIT ?",
                 (q, room_id, limit)).fetchall()
         elif username:
-            # Only search in user's rooms and own DMs
             user_rooms = [r["id"] for r in self.get_user_rooms(username)]
             if user_rooms:
                 placeholders = ",".join("?" for _ in user_rooms)
@@ -437,6 +515,93 @@ class Database:
         conn.commit()
         return row["saved_as"] if row else None
 
+    # ===================== Recordings =====================
+
+    def save_recording(self, caller, callee, call_type, filename, size, duration):
+        conn = self._get_conn()
+        cur = conn.execute(
+            "INSERT INTO recordings (caller, callee, call_type, filename, size, duration) VALUES (?, ?, ?, ?, ?, ?)",
+            (caller, callee, call_type, filename, size, duration))
+        conn.commit()
+        return cur.lastrowid
+
+    def get_recordings(self, username=None, limit=50):
+        conn = self._get_conn()
+        if username:
+            rows = conn.execute(
+                "SELECT id, caller, callee, call_type, filename, size, duration, recorded_at FROM recordings WHERE caller=? OR callee=? ORDER BY id DESC LIMIT ?",
+                (username, username, limit)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, caller, callee, call_type, filename, size, duration, recorded_at FROM recordings ORDER BY id DESC LIMIT ?",
+                (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_recording(self, rec_id):
+        conn = self._get_conn()
+        row = conn.execute("SELECT filename FROM recordings WHERE id=?", (rec_id,)).fetchone()
+        conn.execute("DELETE FROM recordings WHERE id=?", (rec_id,))
+        conn.commit()
+        return row["filename"] if row else None
+
+    # ===================== Backup & Restore =====================
+
+    def create_backup(self, backup_dir, description=""):
+        """Create a backup of the database."""
+        os.makedirs(backup_dir, exist_ok=True)
+        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        backup_name = f"helen_backup_{ts}.db"
+        backup_path = os.path.join(backup_dir, backup_name)
+
+        # Use SQLite backup API
+        conn = self._get_conn()
+        backup_conn = sqlite3.connect(backup_path)
+        conn.backup(backup_conn)
+        backup_conn.close()
+
+        size = os.path.getsize(backup_path)
+        self.save_backup_record(backup_name, size, description)
+        return {"filename": backup_name, "size": size, "created_at": ts}
+
+    def restore_backup(self, backup_dir, backup_name):
+        """Restore database from a backup file."""
+        backup_path = os.path.join(backup_dir, backup_name)
+        if not os.path.isfile(backup_path):
+            return False
+
+        # Close current connection
+        if hasattr(self._local, "conn") and self._local.conn:
+            self._local.conn.close()
+            self._local.conn = None
+
+        # Replace current DB with backup
+        shutil.copy2(backup_path, self.db_path)
+
+        # Re-initialize connection
+        self._init_db()
+        return True
+
+    def save_backup_record(self, filename, size, description=""):
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO backups (filename, size, description) VALUES (?, ?, ?)",
+            (filename, size, description))
+        conn.commit()
+
+    def get_backups(self):
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT id, filename, size, created_at, description FROM backups ORDER BY id DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_backup_record(self, backup_id):
+        conn = self._get_conn()
+        row = conn.execute("SELECT filename FROM backups WHERE id=?", (backup_id,)).fetchone()
+        conn.execute("DELETE FROM backups WHERE id=?", (backup_id,))
+        conn.commit()
+        return row["filename"] if row else None
+
     # ===================== Stats =====================
 
     def count_messages(self):
@@ -455,6 +620,10 @@ class Database:
         conn = self._get_conn()
         return conn.execute("SELECT COUNT(*) as c FROM users WHERE banned=1").fetchone()["c"]
 
+    def count_recordings(self):
+        conn = self._get_conn()
+        return conn.execute("SELECT COUNT(*) as c FROM recordings").fetchone()["c"]
+
     def get_db_size(self):
         try:
             return os.path.getsize(self.db_path)
@@ -472,3 +641,8 @@ class Database:
         conn = self._get_conn()
         row = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
         return row["value"] if row else default
+
+    def get_all_settings(self):
+        conn = self._get_conn()
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+        return {r["key"]: r["value"] for r in rows}
