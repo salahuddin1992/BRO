@@ -125,9 +125,10 @@ class NetworkDetector:
 
     def _detect_fallback(self):
         try:
+            # Local-only: use UDP broadcast address to find local IP without external connection
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.settimeout(2)
-            s.connect(("8.8.8.8", 80))
+            s.connect(("10.255.255.255", 1))
             ip = s.getsockname()[0]
             s.close()
             self.interfaces.append({
@@ -135,7 +136,16 @@ class NetworkDetector:
                 "type": "Auto", "gateway": None, "is_fiber": False, "active": True,
             })
         except Exception:
-            pass
+            # Final fallback: use hostname
+            try:
+                ip = socket.gethostbyname(socket.gethostname())
+                if ip and not ip.startswith("127."):
+                    self.interfaces.append({
+                        "name": "auto", "ip": ip, "netmask": "255.255.255.0", "mac": "",
+                        "type": "Auto", "gateway": None, "is_fiber": False, "active": True,
+                    })
+            except Exception:
+                pass
 
     def _classify(self, name):
         n = name.lower()
