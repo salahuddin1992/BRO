@@ -4,6 +4,7 @@ Chat + Voice/Video Calls + File Sharing + Rooms + Auth + Mesh + Admin
 """
 import os
 import sys
+import re
 import uuid
 import time
 import hmac
@@ -52,7 +53,7 @@ class BROServer:
             static_folder=os.path.join(config.BASE_PATH, "static"),
         )
         self.app.secret_key = config.SECRET_KEY
-        self.app.config["MAX_CONTENT_LENGTH"] = None
+        self.app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
         CORS(self.app)
 
         # Database
@@ -74,7 +75,7 @@ class BROServer:
 
         # SocketIO
         self.sio = SocketIO(self.app, cors_allowed_origins="*", async_mode="eventlet",
-                            max_http_buffer_size=1e300, ping_timeout=60, ping_interval=25)
+                            max_http_buffer_size=10*1024*1024, ping_timeout=60, ping_interval=25)
 
         # Mesh + Signaling
         self.mesh = MeshNode(self.server_id, self.host_ip, config.SERVER_PORT, config.MESH_PORT)
@@ -82,7 +83,8 @@ class BROServer:
 
         # State (online sessions)
         self.clients = {}       # {sid: {sid, username, ip, connected_at, status}}
-        self.auth_tokens = {}   # {token: username}  - session persistence
+        self.auth_tokens = {}   # {token: {username, created_at}}  - session persistence
+        self._TOKEN_TTL = 7 * 24 * 3600  # 7 days
         self.logs = []
         self.typing_state = {}  # {sid: {target, username, timestamp}}
 
@@ -97,8 +99,24 @@ class BROServer:
     def _gen_token(self, username):
         raw = f"{username}:{config.SECRET_KEY}:{uuid.uuid4().hex}"
         token = hmac.new(config.SECRET_KEY.encode(), raw.encode(), hashlib.sha256).hexdigest()
-        self.auth_tokens[token] = username
+        self.auth_tokens[token] = {"username": username, "created_at": time.time()}
+        self._cleanup_tokens()
         return token
+
+    def _cleanup_tokens(self):
+        now = time.time()
+        expired = [t for t, v in self.auth_tokens.items() if now - v["created_at"] > self._TOKEN_TTL]
+        for t in expired:
+            del self.auth_tokens[t]
+
+    def _get_token_user(self, token):
+        info = self.auth_tokens.get(token)
+        if not info:
+            return None
+        if time.time() - info["created_at"] > self._TOKEN_TTL:
+            del self.auth_tokens[token]
+            return None
+        return info["username"]
 
     def _check_rate(self, ip):
         now = time.time()
@@ -140,6 +158,10 @@ class BROServer:
         @self.app.route("/login", methods=["GET", "POST"])
         def login():
             if request.method == "POST":
+                ip = request.remote_addr
+                if not self._check_rate(ip):
+                    return render_template("login.html", error="محاولات كثيرة، انتظر دقيقة")
+                self._record_attempt(ip)
                 if (request.form.get("username") == config.ADMIN_USERNAME and
                         _check_admin_pw(request.form.get("password", ""))):
                     session["admin"] = True
@@ -200,12 +222,13 @@ class BROServer:
         @self._require_admin
         def api_ban_user(username):
             self.db.ban_user(username)
-            # Kick from active sessions
+            # Kick from active sessions and force disconnect
             for sid, cl in list(self.clients.items()):
                 if cl.get("username") == username:
                     self.sio.emit("force_disconnect", {"reason": "تم حظرك"}, room=sid)
+                    self.sio.server.disconnect(sid, namespace="/")
             # Remove auth tokens
-            self.auth_tokens = {t: u for t, u in self.auth_tokens.items() if u != username}
+            self.auth_tokens = {t: v for t, v in self.auth_tokens.items() if v["username"] != username}
             self._log(f"Admin banned: {username}", "warning")
             self._broadcast_users()
             return jsonify({"status": "ok"})
@@ -223,6 +246,7 @@ class BROServer:
             for sid, cl in list(self.clients.items()):
                 if cl.get("username") == username:
                     self.sio.emit("force_disconnect", {"reason": "تم طردك"}, room=sid)
+                    self.sio.server.disconnect(sid, namespace="/")
             self._log(f"Admin kicked: {username}", "warning")
             return jsonify({"status": "ok"})
 
@@ -233,7 +257,8 @@ class BROServer:
             for sid, cl in list(self.clients.items()):
                 if cl.get("username") == username:
                     self.sio.emit("force_disconnect", {"reason": "تم حذف حسابك"}, room=sid)
-            self.auth_tokens = {t: u for t, u in self.auth_tokens.items() if u != username}
+                    self.sio.server.disconnect(sid, namespace="/")
+            self.auth_tokens = {t: v for t, v in self.auth_tokens.items() if v["username"] != username}
             self.db.delete_user(username)
             self._log(f"Admin deleted user: {username}", "warning")
             self._broadcast_users()
@@ -385,7 +410,7 @@ class BROServer:
             fpath = os.path.join(config.UPLOAD_FOLDER, safe)
             if not os.path.isfile(fpath):
                 return jsonify({"error": "الملف غير موجود"}), 404
-            return send_from_directory(config.UPLOAD_FOLDER, safe)
+            return send_from_directory(config.UPLOAD_FOLDER, safe, as_attachment=True)
 
         @self.app.route("/api/files")
         def list_files():
@@ -403,6 +428,8 @@ class BROServer:
 
         @self.app.route("/api/mesh/info")
         def mesh_info():
+            if not _check_mesh_secret() and not session.get("admin"):
+                return jsonify({"error": "unauthorized"}), 403
             return jsonify({
                 "server_id": self.server_id,
                 "host": self.host_ip,
@@ -497,6 +524,13 @@ class BROServer:
             if len(username) < 2:
                 emit("auth_result", {"ok": False, "error": "الاسم قصير جداً"})
                 return
+            if len(username) > 30:
+                emit("auth_result", {"ok": False, "error": "الاسم طويل جداً"})
+                return
+            # Allow Arabic, alphanumeric, underscores, hyphens, spaces
+            if not re.match(r'^[\w\u0600-\u06FF\u0750-\u077F\s\-]+$', username):
+                emit("auth_result", {"ok": False, "error": "الاسم يحتوي على رموز غير مسموحة"})
+                return
             if len(password) < 4:
                 emit("auth_result", {"ok": False, "error": "كلمة المرور قصيرة جداً (4 أحرف على الأقل)"})
                 return
@@ -545,7 +579,7 @@ class BROServer:
         def on_token_auth(data):
             sid = request.sid
             token = data.get("token", "")
-            username = self.auth_tokens.get(token)
+            username = self._get_token_user(token)
             if username and self.db.is_banned(username):
                 emit("auth_result", {"ok": False, "error": "تم حظر هذا الحساب", "token_expired": True})
                 return
@@ -628,14 +662,16 @@ class BROServer:
             client = self.clients.get(sid, {})
             username = client.get("username")
             room_id = data.get("room_id")
+            before_id = data.get("before_id")
             if room_id and username:
                 members = self.db.get_room_members(room_id)
                 if username not in members:
                     return
-                msgs = self.db.get_messages(room_id=room_id, limit=50)
+                msgs = self.db.get_messages(room_id=room_id, limit=50, before_id=before_id)
                 self._attach_reply_info(msgs)
-                files = self.db.get_files(room_id=room_id, limit=20)
-                emit("room_history", {"room_id": room_id, "messages": msgs, "files": files})
+                files = self.db.get_files(room_id=room_id, limit=20) if not before_id else []
+                has_more = len(msgs) == 50
+                emit("room_history", {"room_id": room_id, "messages": msgs, "files": files, "before_id": before_id, "has_more": has_more})
 
         @self.sio.on("get_dm_history")
         def on_dm_history(data):
@@ -643,10 +679,12 @@ class BROServer:
             client = self.clients.get(sid, {})
             me = client.get("username")
             other = data.get("username")
+            before_id = data.get("before_id")
             if me and other:
-                msgs = self.db.get_dm_history(me, other, limit=50)
+                msgs = self.db.get_dm_history(me, other, limit=50, before_id=before_id)
                 self._attach_reply_info(msgs)
-                emit("dm_history", {"username": other, "messages": msgs})
+                has_more = len(msgs) == 50
+                emit("dm_history", {"username": other, "messages": msgs, "before_id": before_id, "has_more": has_more})
 
         @self.sio.on("get_rooms_list")
         def on_get_rooms():
@@ -705,10 +743,12 @@ class BROServer:
         def on_msg(data):
             sid = request.sid
             client = self.clients.get(sid, {})
-            sender = client.get("username", data.get("sender", "?"))
-            if not sender or sender == "?":
+            sender = client.get("username")
+            if not sender:
                 return
-            text = data.get("text", "")
+            text = (data.get("text") or "").strip()
+            if not text:
+                return
             target_user = data.get("target_user")
             room_id = data.get("room_id")
             reply_to = data.get("reply_to")

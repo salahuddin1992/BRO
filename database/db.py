@@ -304,29 +304,48 @@ class Database:
         conn.commit()
         return {"id": cur.lastrowid, "timestamp": ts}
 
-    def get_messages(self, room_id=None, target=None, limit=50):
+    def get_messages(self, room_id=None, target=None, limit=50, before_id=None):
         conn = self._get_conn()
+        before_clause = "AND id < ?" if before_id else ""
+        params = []
         if room_id:
+            params = [room_id]
+            if before_id:
+                params.append(before_id)
+            params.append(limit)
             rows = conn.execute(
-                "SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages WHERE room_id=? AND deleted=0 ORDER BY id DESC LIMIT ?",
-                (room_id, limit)).fetchall()
+                f"SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages WHERE room_id=? AND deleted=0 {before_clause} ORDER BY id DESC LIMIT ?",
+                params).fetchall()
         elif target:
+            params = [target, target]
+            if before_id:
+                params.append(before_id)
+            params.append(limit)
             rows = conn.execute(
-                "SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages WHERE (target=? OR sender=?) AND deleted=0 ORDER BY id DESC LIMIT ?",
-                (target, target, limit)).fetchall()
+                f"SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages WHERE (target=? OR sender=?) AND deleted=0 {before_clause} ORDER BY id DESC LIMIT ?",
+                params).fetchall()
         else:
+            params = []
+            if before_id:
+                params.append(before_id)
+            params.append(limit)
             rows = conn.execute(
-                "SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages WHERE deleted=0 ORDER BY id DESC LIMIT ?",
-                (limit,)).fetchall()
+                f"SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages WHERE deleted=0 {before_clause} ORDER BY id DESC LIMIT ?",
+                params).fetchall()
         return list(reversed([dict(r) for r in rows]))
 
-    def get_dm_history(self, user1, user2, limit=50):
+    def get_dm_history(self, user1, user2, limit=50, before_id=None):
         conn = self._get_conn()
-        rows = conn.execute("""
+        before_clause = "AND id < ?" if before_id else ""
+        params = [user1, user2, user2, user1]
+        if before_id:
+            params.append(before_id)
+        params.append(limit)
+        rows = conn.execute(f"""
             SELECT id, sender, text, target, room_id, reply_to, deleted, timestamp FROM messages
             WHERE ((sender=? AND target=?) OR (sender=? AND target=?)) AND deleted=0
-            ORDER BY id DESC LIMIT ?
-        """, (user1, user2, user2, user1, limit)).fetchall()
+            {before_clause} ORDER BY id DESC LIMIT ?
+        """, params).fetchall()
         return list(reversed([dict(r) for r in rows]))
 
     def get_message(self, msg_id):

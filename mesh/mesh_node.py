@@ -10,6 +10,10 @@ import logging
 from datetime import datetime
 from urllib.request import Request, urlopen
 
+import sys, os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import config
+
 logger = logging.getLogger("BRO.mesh")
 
 
@@ -156,7 +160,7 @@ class MeshNode:
                 "port": self.port,
                 "users": local_users,
             }).encode()
-            req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+            req = Request(url, data=payload, headers={"Content-Type": "application/json", "X-Mesh-Secret": config.SECRET_KEY})
             urlopen(req, timeout=3)
         except Exception:
             pass
@@ -170,7 +174,7 @@ class MeshNode:
         try:
             url = f"http://{peer['host']}:{peer['port']}/api/mesh/forward"
             payload = json.dumps({"event": event, "data": data}).encode()
-            req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+            req = Request(url, data=payload, headers={"Content-Type": "application/json", "X-Mesh-Secret": config.SECRET_KEY})
             urlopen(req, timeout=5)
             return True
         except Exception as e:
@@ -188,7 +192,7 @@ class MeshNode:
             try:
                 url = f"http://{peer['host']}:{peer['port']}/api/mesh/broadcast"
                 payload = json.dumps({"event": event, "data": data}).encode()
-                req = Request(url, data=payload, headers={"Content-Type": "application/json"})
+                req = Request(url, data=payload, headers={"Content-Type": "application/json", "X-Mesh-Secret": config.SECRET_KEY})
                 urlopen(req, timeout=3)
             except Exception:
                 pass
@@ -239,7 +243,7 @@ class MeshNode:
         # Try HTTP discovery
         try:
             url = f"http://{host}:{port}/api/mesh/info"
-            resp = urlopen(Request(url), timeout=3)
+            resp = urlopen(Request(url, headers={"X-Mesh-Secret": config.SECRET_KEY}), timeout=3)
             info = json.loads(resp.read().decode())
             sid = info["server_id"]
             with self._lock:
