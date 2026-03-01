@@ -224,6 +224,59 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 .modal .mbtn-ok { background:linear-gradient(135deg,#00d4ff,#0066ff); }
 .modal .mbtn-cancel { background:rgba(255,255,255,0.08); }
 
+/* Screen share */
+.screen-share-area { display:none; background:#000; position:relative; max-height:40vh; border-bottom:2px solid var(--green); }
+.screen-share-area.on { display:block; }
+.screen-share-area video { width:100%; max-height:40vh; object-fit:contain; }
+.screen-share-label { position:absolute; top:8px; right:8px; background:var(--green); color:#000; padding:2px 10px; border-radius:10px; font-size:.72em; font-weight:bold; }
+.screen-share-stop { position:absolute; top:8px; left:8px; background:var(--red); color:#fff; border:none; border-radius:16px; padding:4px 12px; cursor:pointer; font-size:.72em; }
+.cbtn.screen { background:var(--green); color:#fff; }
+
+/* Recording indicator */
+.rec-dot { display:none; width:10px; height:10px; border-radius:50%; background:var(--red); animation:recPulse 1s infinite; margin-left:6px; }
+.rec-dot.on { display:inline-block; }
+@keyframes recPulse { 0%,100%{opacity:1;} 50%{opacity:.3;} }
+.vbtn.rec { background:rgba(255,255,255,0.15); }
+.vbtn.rec.recording { background:var(--red); }
+
+/* E2E encryption badge */
+.encrypted-icon { display:inline-block; color:var(--green); font-size:.72em; margin-left:4px; }
+
+/* Role badges */
+.role-badge { font-size:.58em; padding:1px 5px; border-radius:6px; margin-right:4px; }
+.role-admin { background:rgba(255,82,82,0.2); color:var(--red); }
+.role-moderator { background:rgba(255,145,0,0.2); color:var(--orange); }
+
+/* Settings panel */
+.settings-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:160; }
+.settings-overlay.on { display:flex; }
+.settings-modal { background:#1a1a2e; border:1px solid var(--border); border-radius:14px; padding:30px; width:400px; max-height:80vh; overflow-y:auto; }
+.settings-modal h3 { color:var(--accent); margin-bottom:16px; text-align:center; }
+.settings-group { margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid var(--border); }
+.settings-group h4 { color:var(--dim); font-size:.82em; margin-bottom:8px; }
+.settings-row { display:flex; justify-content:space-between; align-items:center; padding:6px 0; }
+.settings-row label { font-size:.85em; }
+.settings-toggle { position:relative; width:44px; height:24px; }
+.settings-toggle input { opacity:0; width:0; height:0; }
+.settings-toggle .slider { position:absolute; inset:0; background:rgba(255,255,255,0.1); border-radius:12px; cursor:pointer; transition:.3s; }
+.settings-toggle .slider:before { content:''; position:absolute; width:18px; height:18px; left:3px; bottom:3px; background:#fff; border-radius:50%; transition:.3s; }
+.settings-toggle input:checked + .slider { background:var(--accent); }
+.settings-toggle input:checked + .slider:before { transform:translateX(20px); }
+.settings-select { background:rgba(255,255,255,0.06); border:1px solid var(--border); color:#fff; border-radius:6px; padding:4px 8px; font-size:.82em; outline:none; }
+
+/* Light theme */
+body.light { --bg:#f0f2f5; --card:rgba(0,0,0,0.03); --border:rgba(0,0,0,0.1); --text:#1a1a2e; --dim:rgba(0,0,0,0.4); }
+body.light .msg.out { background:linear-gradient(135deg,#0066ff,#00d4ff); }
+body.light .msg.in { background:rgba(0,0,0,0.06); }
+body.light .auth-box, body.light .modal, body.light .profile-modal, body.light .settings-modal { background:#fff; border-color:rgba(0,0,0,0.1); }
+body.light .auth-box input, body.light .modal input, body.light .profile-modal input { background:rgba(0,0,0,0.04); border-color:rgba(0,0,0,0.1); color:#333; }
+body.light .sidebar { background:rgba(0,0,0,0.02); }
+body.light .info { background:rgba(0,0,0,0.02); }
+
+/* Font size */
+body.font-small { font-size:13px; }
+body.font-large { font-size:17px; }
+
 /* Mobile toggle */
 .mob-btn { display:none; position:fixed; top:10px; right:10px; z-index:60; width:38px; height:38px;
            border-radius:50%; border:1px solid var(--border); background:rgba(10,10,26,0.9);
@@ -305,6 +358,42 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
     </div>
 </div>
 
+<!-- Settings Modal -->
+<div class="settings-overlay" id="settingsModal">
+    <div class="settings-modal">
+        <h3>الإعدادات</h3>
+        <div class="settings-group">
+            <h4>المظهر</h4>
+            <div class="settings-row"><label>الثيم</label>
+                <select class="settings-select" id="setTheme" onchange="applySetting('theme',this.value)">
+                    <option value="dark">داكن</option><option value="light">فاتح</option>
+                </select></div>
+            <div class="settings-row"><label>حجم الخط</label>
+                <select class="settings-select" id="setFontSize" onchange="applySetting('fontSize',this.value)">
+                    <option value="normal">متوسط</option><option value="small">صغير</option><option value="large">كبير</option>
+                </select></div>
+        </div>
+        <div class="settings-group">
+            <h4>الإشعارات</h4>
+            <div class="settings-row"><label>أصوات الإشعارات</label>
+                <label class="settings-toggle"><input type="checkbox" id="setSoundOn" checked onchange="applySetting('soundOn',this.checked)"><span class="slider"></span></label></div>
+            <div class="settings-row"><label>إشعارات سطح المكتب</label>
+                <label class="settings-toggle"><input type="checkbox" id="setDesktopNotif" checked onchange="applySetting('desktopNotif',this.checked)"><span class="slider"></span></label></div>
+        </div>
+        <div class="settings-group">
+            <h4>الأمان</h4>
+            <div class="settings-row"><label>تشفير E2E (الرسائل الخاصة)</label>
+                <label class="settings-toggle"><input type="checkbox" id="setE2E" checked onchange="applySetting('e2eEnabled',this.checked)"><span class="slider"></span></label></div>
+        </div>
+        <div class="settings-group">
+            <h4>المكالمات</h4>
+            <div class="settings-row"><label>تسجيل المكالمات تلقائياً</label>
+                <label class="settings-toggle"><input type="checkbox" id="setAutoRecord" onchange="applySetting('autoRecord',this.checked)"><span class="slider"></span></label></div>
+        </div>
+        <button style="width:100%;padding:10px;border:none;border-radius:8px;background:rgba(255,255,255,0.08);color:#fff;cursor:pointer;" onclick="closeSettings()">إغلاق</button>
+    </div>
+</div>
+
 <!-- Incoming Call -->
 <div class="call-popup" id="callPopup">
     <div class="call-card">
@@ -348,9 +437,12 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
             <div class="btns">
                 <button class="cbtn search-btn" onclick="toggleSearch()" title="بحث">&#128269;</button>
                 <button class="cbtn profile-btn" onclick="openProfileModal()" title="الملف الشخصي">&#9881;</button>
+                <button class="cbtn search-btn" onclick="openSettings()" title="الإعدادات" style="font-size:.9em;">&#9881;</button>
                 <button class="cbtn voice" onclick="startCall('audio')" title="صوت">&#128222;</button>
                 <button class="cbtn video" onclick="startCall('video')" title="فيديو">&#127909;</button>
+                <button class="cbtn screen" id="screenBtn" onclick="toggleScreenShare()" title="مشاركة الشاشة">&#128187;</button>
                 <button class="cbtn hangup" id="hangupBtn" onclick="endCall()">&#10005;</button>
+                <span class="rec-dot" id="recDot"></span>
             </div>
         </div>
 
@@ -360,12 +452,18 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
             <button onclick="closeSearch()">&#10005;</button>
         </div>
 
+        <div class="screen-share-area" id="screenArea">
+            <span class="screen-share-label">مشاركة الشاشة</span>
+            <button class="screen-share-stop" onclick="stopScreenShare()">إيقاف المشاركة</button>
+            <video id="screenVid" autoplay playsinline></video>
+        </div>
         <div class="vid-area" id="vidArea">
             <video id="remoteVid" autoplay playsinline></video>
             <video id="localVid" autoplay muted playsinline></video>
             <div class="vid-ctrl">
                 <button class="vbtn" id="micBtn" onclick="toggleMic()">&#127908;</button>
                 <button class="vbtn" id="camBtn" onclick="toggleCam()">&#127909;</button>
+                <button class="vbtn rec" id="recBtn" onclick="toggleRecording()" title="تسجيل">&#9679;</button>
                 <button class="vbtn" onclick="toggleFullscreen()" title="ملء الشاشة">&#x26F6;</button>
                 <button class="vbtn off" onclick="endCall()">&#10005;</button>
             </div>
@@ -412,7 +510,7 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 
 <script src="/static/js/socket.io.min.js"></script>
 <script>
-let socket, me;
+let socket, me, myRole='user';
 let selUser=null, selUserName=null, selRoom=null;
 let localStream, pc, inCall=null;
 let micOn=true, camOn=true;
@@ -425,11 +523,54 @@ let notifGranted=false;
 let replyToId=null, replyToText='';
 let unreadCounts = {}; // {room_id: count}
 
+// Screen sharing
+let screenStream=null, screenPC=null, isScreenSharing=false;
+
+// Call recording
+let mediaRecorder=null, recordedChunks=[], isRecording=false, recordingStartTime=null;
+
+// E2E Encryption
+let myKeyPair=null, derivedKeys={};
+
+// Settings
+let appSettings = {
+    theme: localStorage.getItem('helen_theme') || 'dark',
+    fontSize: localStorage.getItem('helen_fontSize') || 'normal',
+    soundOn: localStorage.getItem('helen_soundOn') !== 'false',
+    desktopNotif: localStorage.getItem('helen_desktopNotif') !== 'false',
+    e2eEnabled: localStorage.getItem('helen_e2eEnabled') !== 'false',
+    autoRecord: localStorage.getItem('helen_autoRecord') === 'true',
+};
+
 let iceConfig = {iceServers:[]};
 let authToken = localStorage.getItem('helen_token') || null;
 let savedUser = localStorage.getItem('helen_user') || null;
 
 const IMAGE_EXTS = ['png','jpg','jpeg','gif','bmp','webp','svg'];
+
+// --- Apply Settings ---
+function applyAllSettings(){
+    document.body.classList.toggle('light', appSettings.theme==='light');
+    document.body.classList.remove('font-small','font-large');
+    if(appSettings.fontSize==='small') document.body.classList.add('font-small');
+    else if(appSettings.fontSize==='large') document.body.classList.add('font-large');
+}
+function applySetting(key, val){
+    appSettings[key] = val;
+    localStorage.setItem('helen_'+key, String(val));
+    applyAllSettings();
+}
+function openSettings(){
+    document.getElementById('setTheme').value = appSettings.theme;
+    document.getElementById('setFontSize').value = appSettings.fontSize;
+    document.getElementById('setSoundOn').checked = appSettings.soundOn;
+    document.getElementById('setDesktopNotif').checked = appSettings.desktopNotif;
+    document.getElementById('setE2E').checked = appSettings.e2eEnabled;
+    document.getElementById('setAutoRecord').checked = appSettings.autoRecord;
+    document.getElementById('settingsModal').classList.add('on');
+}
+function closeSettings(){ document.getElementById('settingsModal').classList.remove('on'); }
+applyAllSettings();
 
 // --- Notifications ---
 function requestNotif(){
@@ -440,12 +581,17 @@ function requestNotif(){
     }
 }
 function showNotif(title,body){
-    if(!notifGranted || document.hasFocus()) return;
-    try { new Notification(title, {body, icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📡</text></svg>'}); } catch(e){}
+    if(!appSettings.desktopNotif || !notifGranted || document.hasFocus()) return;
+    try {
+        new Notification(title, {body, icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📡</text></svg>'});
+        // Electron desktop notification
+        if(window.helenDesktop) window.helenDesktop.showNotification(title, body);
+    } catch(e){}
 }
 
 // --- Notification Sound ---
 function playMsgSound(){
+    if(!appSettings.soundOn) return;
     try {
         let ctx = new (window.AudioContext || window.webkitAudioContext)();
         let osc = ctx.createOscillator();
@@ -690,6 +836,7 @@ function initSocket(user, pass, token){
     socket.on('auth_result', d=>{
         if(d.ok){
             me = d.username;
+            myRole = d.role || 'user';
             myRooms = d.rooms || [];
             if(d.token){
                 authToken = d.token;
@@ -698,6 +845,7 @@ function initSocket(user, pass, token){
             }
             document.getElementById('authScreen').classList.add('hide');
             requestNotif();
+            initE2E();
             renderRooms();
             if(myRooms.length>0){
                 selectRoom(myRooms[0].id, myRooms[0].name);
@@ -910,6 +1058,27 @@ function initSocket(user, pass, token){
     socket.on('webrtc_offer', async d=> await handleOffer(d));
     socket.on('webrtc_answer', async d=> await handleAnswer(d));
     socket.on('webrtc_ice', async d=> await handleIce(d));
+
+    // Screen share
+    socket.on('screen_share_started', d=>{
+        sysMsg(d.sender_name + ' بدأ مشاركة الشاشة');
+    });
+    socket.on('screen_share_stopped', d=>{
+        document.getElementById('screenArea').classList.remove('on');
+        document.getElementById('screenVid').srcObject = null;
+        sysMsg('توقفت مشاركة الشاشة');
+    });
+    socket.on('screen_offer', async d=> await handleScreenOffer(d));
+    socket.on('screen_answer', async d=> await handleScreenAnswer(d));
+    socket.on('screen_ice', async d=> await handleScreenIce(d));
+
+    // E2E key exchange
+    socket.on('public_key_response', d=>{
+        if(d.public_key && d.username) storeRemoteKey(d.username, d.public_key);
+    });
+
+    // Role update
+    socket.on('role_updated', d=>{ myRole = d.role; });
 }
 
 // --- Should show message in current view ---
@@ -1070,6 +1239,12 @@ function renderUsers(users){
         let nameEl = document.createElement('div');
         nameEl.className = 'uname';
         nameEl.textContent = u.username;
+        if(u.role && u.role !== 'user'){
+            let rb = document.createElement('span');
+            rb.className = 'role-badge role-'+u.role;
+            rb.textContent = u.role==='admin'?'مدير':'مشرف';
+            nameEl.appendChild(rb);
+        }
         if(u.remote){
             let b=document.createElement('span');
             b.className='rbadge'; b.textContent='mesh';
@@ -1400,6 +1575,8 @@ function endCall(){
 function cleanup(){
     stopRing();
     stopCallTimer();
+    stopRecordingAndUpload();
+    stopScreenShare();
     if(pc){ pc.close(); pc=null; }
     if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
     inCall=null; iceQ=[]; micOn=true; camOn=true;
@@ -1428,6 +1605,186 @@ function toggleCam(){
 
 function fmtSize(b){ if(b<1024)return b+' B'; if(b<1048576)return(b/1024).toFixed(1)+' KB'; return(b/1048576).toFixed(1)+' MB'; }
 function esc(s){ let d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+// ============================================================
+// SCREEN SHARING
+// ============================================================
+async function toggleScreenShare(){
+    if(isScreenSharing){ stopScreenShare(); return; }
+    if(!selUser){ sysMsg('اختر مستخدم لمشاركة الشاشة'); return; }
+    try {
+        screenStream = await navigator.mediaDevices.getDisplayMedia({video:{cursor:'always'}, audio:false});
+    } catch(e){ sysMsg('تم إلغاء مشاركة الشاشة'); return; }
+    isScreenSharing = true;
+    document.getElementById('screenBtn').style.background = 'var(--red)';
+    document.getElementById('screenArea').classList.add('on');
+    document.getElementById('screenVid').srcObject = screenStream;
+    screenStream.getVideoTracks()[0].onended = ()=> stopScreenShare();
+    socket.emit('screen_share_start', {target:selUser, sender_name:me});
+    // Create screen share peer connection
+    screenPC = new RTCPeerConnection(iceConfig);
+    screenPC.onicecandidate = e=>{ if(e.candidate) socket.emit('screen_ice',{candidate:e.candidate,target:selUser}); };
+    screenStream.getTracks().forEach(t=> screenPC.addTrack(t,screenStream));
+    let offer = await screenPC.createOffer();
+    await screenPC.setLocalDescription(offer);
+    socket.emit('screen_offer',{sdp:offer.sdp, type:offer.type, target:selUser});
+    sysMsg('بدأت مشاركة الشاشة');
+}
+function stopScreenShare(){
+    if(!isScreenSharing) return;
+    isScreenSharing = false;
+    if(screenStream){ screenStream.getTracks().forEach(t=>t.stop()); screenStream=null; }
+    if(screenPC){ screenPC.close(); screenPC=null; }
+    document.getElementById('screenBtn').style.background = '';
+    document.getElementById('screenArea').classList.remove('on');
+    document.getElementById('screenVid').srcObject = null;
+    if(selUser && socket) socket.emit('screen_share_stop',{target:selUser});
+}
+async function handleScreenOffer(d){
+    screenPC = new RTCPeerConnection(iceConfig);
+    screenPC.onicecandidate = e=>{ if(e.candidate) socket.emit('screen_ice',{candidate:e.candidate,target:d.sender}); };
+    screenPC.ontrack = e=>{
+        document.getElementById('screenArea').classList.add('on');
+        document.getElementById('screenVid').srcObject = e.streams[0];
+    };
+    await screenPC.setRemoteDescription(new RTCSessionDescription({sdp:d.sdp,type:d.type}));
+    let answer = await screenPC.createAnswer();
+    await screenPC.setLocalDescription(answer);
+    socket.emit('screen_answer',{sdp:answer.sdp, type:answer.type, target:d.sender});
+}
+async function handleScreenAnswer(d){
+    if(screenPC) await screenPC.setRemoteDescription(new RTCSessionDescription({sdp:d.sdp,type:d.type}));
+}
+async function handleScreenIce(d){
+    if(d.candidate && screenPC){
+        if(screenPC.remoteDescription) try{ await screenPC.addIceCandidate(new RTCIceCandidate(d.candidate)); }catch(e){}
+    }
+}
+
+// ============================================================
+// CALL RECORDING
+// ============================================================
+function toggleRecording(){
+    if(isRecording){ stopRecordingAndUpload(); return; }
+    startRecording();
+}
+function startRecording(){
+    if(!localStream && !document.getElementById('remoteVid').srcObject) return;
+    let streams = [];
+    if(localStream) streams.push(...localStream.getTracks());
+    let remStream = document.getElementById('remoteVid').srcObject;
+    if(remStream) streams.push(...remStream.getTracks());
+    if(streams.length===0) return;
+    let combined = new MediaStream(streams);
+    try {
+        mediaRecorder = new MediaRecorder(combined, {mimeType:'video/webm;codecs=vp8,opus'});
+    } catch(e){
+        try { mediaRecorder = new MediaRecorder(combined, {mimeType:'audio/webm'}); }
+        catch(e2){ sysMsg('المتصفح لا يدعم التسجيل'); return; }
+    }
+    recordedChunks = [];
+    recordingStartTime = Date.now();
+    mediaRecorder.ondataavailable = e=>{ if(e.data.size>0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = ()=> uploadRecording();
+    mediaRecorder.start(1000);
+    isRecording = true;
+    document.getElementById('recBtn').classList.add('recording');
+    document.getElementById('recDot').classList.add('on');
+    sysMsg('بدأ تسجيل المكالمة');
+}
+function stopRecordingAndUpload(){
+    if(!isRecording || !mediaRecorder) return;
+    isRecording = false;
+    try { mediaRecorder.stop(); } catch(e){}
+    document.getElementById('recBtn').classList.remove('recording');
+    document.getElementById('recDot').classList.remove('on');
+}
+function uploadRecording(){
+    if(recordedChunks.length===0) return;
+    let blob = new Blob(recordedChunks, {type:'video/webm'});
+    let duration = recordingStartTime ? Math.floor((Date.now()-recordingStartTime)/1000) : 0;
+    let form = new FormData();
+    form.append('recording', blob, 'recording.webm');
+    form.append('username', me);
+    form.append('callee', selUserName || 'unknown');
+    form.append('call_type', window._callType || 'audio');
+    form.append('duration', String(duration));
+    fetch('/api/upload-recording', {method:'POST', body:form}).then(r=>r.json()).then(d=>{
+        if(d.status==='ok') sysMsg('تم حفظ التسجيل');
+    }).catch(()=> sysMsg('فشل رفع التسجيل'));
+    recordedChunks = [];
+    recordingStartTime = null;
+}
+
+// Auto-record if enabled
+let origStartCallTimer = startCallTimer;
+startCallTimer = function(){
+    origStartCallTimer();
+    if(appSettings.autoRecord && !isRecording) startRecording();
+};
+
+// ============================================================
+// E2E ENCRYPTION (ECDH + AES-GCM)
+// ============================================================
+async function initE2E(){
+    if(!appSettings.e2eEnabled) return;
+    try {
+        myKeyPair = await crypto.subtle.generateKey({name:'ECDH',namedCurve:'P-256'}, true, ['deriveKey']);
+        let exported = await crypto.subtle.exportKey('jwk', myKeyPair.publicKey);
+        socket.emit('set_public_key', {public_key: JSON.stringify(exported)});
+    } catch(e){ console.error('E2E init failed:', e); }
+}
+
+async function storeRemoteKey(username, keyStr){
+    try {
+        let jwk = JSON.parse(keyStr);
+        let pubKey = await crypto.subtle.importKey('jwk', jwk, {name:'ECDH',namedCurve:'P-256'}, false, []);
+        let aesKey = await crypto.subtle.deriveKey(
+            {name:'ECDH', public:pubKey}, myKeyPair.privateKey,
+            {name:'AES-GCM', length:256}, false, ['encrypt','decrypt']
+        );
+        derivedKeys[username] = aesKey;
+    } catch(e){ console.error('Key import failed:', e); }
+}
+
+async function encryptMsg(text, username){
+    if(!appSettings.e2eEnabled || !derivedKeys[username]) return {text, encrypted:false};
+    try {
+        let iv = crypto.getRandomValues(new Uint8Array(12));
+        let enc = new TextEncoder();
+        let ct = await crypto.subtle.encrypt({name:'AES-GCM',iv}, derivedKeys[username], enc.encode(text));
+        let data = btoa(String.fromCharCode(...iv) + String.fromCharCode(...new Uint8Array(ct)));
+        return {text:data, encrypted:true};
+    } catch(e){ return {text, encrypted:false}; }
+}
+
+async function decryptMsg(ciphertext, senderUsername){
+    if(!derivedKeys[senderUsername]) return ciphertext;
+    try {
+        let raw = atob(ciphertext);
+        let iv = new Uint8Array([...raw.slice(0,12)].map(c=>c.charCodeAt(0)));
+        let ct = new Uint8Array([...raw.slice(12)].map(c=>c.charCodeAt(0)));
+        let plain = await crypto.subtle.decrypt({name:'AES-GCM',iv}, derivedKeys[senderUsername], ct);
+        return new TextDecoder().decode(plain);
+    } catch(e){ return '[رسالة مشفرة]'; }
+}
+
+// Request public key when selecting a user for DM
+let origPickUser = pickUser;
+pickUser = function(sid, name){
+    origPickUser(sid, name);
+    if(name && appSettings.e2eEnabled && !derivedKeys[name] && socket){
+        socket.emit('get_public_key', {username: name});
+    }
+};
+
+// Flash Electron window on new messages
+let origShowNotif = showNotif;
+showNotif = function(title, body){
+    origShowNotif(title, body);
+    if(window.helenDesktop) window.helenDesktop.flashFrame();
+};
+
 </script>
 </body>
 </html>

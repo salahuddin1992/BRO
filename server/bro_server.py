@@ -1,6 +1,7 @@
 """
 Helen WiFi - Main Server
-Chat + Voice/Video Calls + File Sharing + Rooms + Auth + Mesh + Admin
+Chat + Voice/Video Calls + Screen Share + File Sharing + Rooms + Auth
++ Mesh + Admin + Roles + Backup + E2E + Recordings + Settings
 """
 import os
 import sys
@@ -28,7 +29,7 @@ import config
 from network.detector import NetworkDetector
 from mesh.mesh_node import MeshNode
 from server.signaling import SignalingServer
-from database.db import Database
+from database.db import Database, ROLE_USER, ROLE_MODERATOR, ROLE_ADMIN
 
 logger = logging.getLogger("HelenWiFi")
 
@@ -87,6 +88,14 @@ class BROServer:
         self._TOKEN_TTL = 7 * 24 * 3600  # 7 days
         self.logs = []
         self.typing_state = {}  # {sid: {target, username, timestamp}}
+
+        # Backup directory
+        self.backup_dir = os.path.join(config.RUNTIME_PATH, "backups")
+        os.makedirs(self.backup_dir, exist_ok=True)
+
+        # Recordings directory
+        self.recordings_dir = os.path.join(config.RUNTIME_PATH, "recordings")
+        os.makedirs(self.recordings_dir, exist_ok=True)
 
         # Brute force protection: {ip: [timestamps]}
         self._auth_attempts = defaultdict(list)
@@ -207,6 +216,7 @@ class BROServer:
                 "remote_users": self.mesh.get_all_remote_users(),
                 "signaling": self.signaling.get_stats(),
                 "fiber_types": config.FIBER_TYPES,
+                "recordings_count": self.db.count_recordings(),
                 "logs": self.logs[-50:],
             })
 
@@ -222,12 +232,10 @@ class BROServer:
         @self._require_admin
         def api_ban_user(username):
             self.db.ban_user(username)
-            # Kick from active sessions and force disconnect
             for sid, cl in list(self.clients.items()):
                 if cl.get("username") == username:
                     self.sio.emit("force_disconnect", {"reason": "تم حظرك"}, room=sid)
                     self.sio.server.disconnect(sid, namespace="/")
-            # Remove auth tokens
             self.auth_tokens = {t: v for t, v in self.auth_tokens.items() if v["username"] != username}
             self._log(f"Admin banned: {username}", "warning")
             self._broadcast_users()
@@ -253,7 +261,6 @@ class BROServer:
         @self.app.route("/api/admin/users/<username>/delete", methods=["DELETE"])
         @self._require_admin
         def api_delete_user(username):
-            # Kick first
             for sid, cl in list(self.clients.items()):
                 if cl.get("username") == username:
                     self.sio.emit("force_disconnect", {"reason": "تم حذف حسابك"}, room=sid)
@@ -275,11 +282,26 @@ class BROServer:
             self._log(f"Admin reset password: {username}")
             return jsonify({"status": "ok"})
 
+        # --- Admin: Role Management ---
+        @self.app.route("/api/admin/users/<username>/role", methods=["POST"])
+        @self._require_admin
+        def api_set_role(username):
+            data = request.get_json()
+            role = data.get("role", ROLE_USER)
+            if role not in (ROLE_USER, ROLE_MODERATOR, ROLE_ADMIN):
+                return jsonify({"error": "صلاحية غير صالحة"}), 400
+            self.db.set_user_role(username, role)
+            self._log(f"Admin set role: {username} -> {role}")
+            # Notify the user about role change
+            for sid, cl in self.clients.items():
+                if cl.get("username") == username:
+                    self.sio.emit("role_updated", {"role": role}, room=sid)
+            return jsonify({"status": "ok"})
+
         # --- Admin: Room Management ---
         @self.app.route("/api/admin/rooms/<int:room_id>", methods=["DELETE"])
         @self._require_admin
         def api_delete_room(room_id):
-            # Clean up files on disk
             room_files = self.db.get_files_by_room(room_id)
             for rf in room_files:
                 fpath = os.path.join(config.UPLOAD_FOLDER, rf["saved_as"])
@@ -338,6 +360,96 @@ class BROServer:
             self._log("Admin password changed")
             return jsonify({"status": "ok"})
 
+        # --- Admin: Backup & Restore ---
+        @self.app.route("/api/admin/backup", methods=["POST"])
+        @self._require_admin
+        def api_create_backup():
+            data = request.get_json() or {}
+            desc = data.get("description", "")
+            result = self.db.create_backup(self.backup_dir, desc)
+            self._log(f"Backup created: {result['filename']}")
+            return jsonify({"status": "ok", "backup": result})
+
+        @self.app.route("/api/admin/backups")
+        @self._require_admin
+        def api_list_backups():
+            backups = self.db.get_backups()
+            return jsonify({"backups": backups})
+
+        @self.app.route("/api/admin/restore", methods=["POST"])
+        @self._require_admin
+        def api_restore_backup():
+            data = request.get_json()
+            filename = data.get("filename", "")
+            if not filename:
+                return jsonify({"error": "اسم الملف مطلوب"}), 400
+            safe = secure_filename(filename)
+            if not safe or safe != filename:
+                return jsonify({"error": "اسم ملف غير صالح"}), 400
+            if self.db.restore_backup(self.backup_dir, safe):
+                self._log(f"Backup restored: {filename}", "warning")
+                return jsonify({"status": "ok"})
+            return jsonify({"error": "فشل استعادة النسخة"}), 400
+
+        @self.app.route("/api/admin/backups/<int:backup_id>", methods=["DELETE"])
+        @self._require_admin
+        def api_delete_backup(backup_id):
+            filename = self.db.delete_backup_record(backup_id)
+            if filename:
+                fpath = os.path.join(self.backup_dir, filename)
+                if os.path.isfile(fpath):
+                    try:
+                        os.remove(fpath)
+                    except OSError:
+                        pass
+            self._log(f"Backup deleted: {backup_id}")
+            return jsonify({"status": "ok"})
+
+        @self.app.route("/api/admin/backup/download/<filename>")
+        @self._require_admin
+        def api_download_backup(filename):
+            safe = secure_filename(filename)
+            if not safe or safe != filename:
+                return jsonify({"error": "اسم ملف غير صالح"}), 400
+            return send_from_directory(self.backup_dir, safe, as_attachment=True)
+
+        # --- Admin: Recordings Management ---
+        @self.app.route("/api/admin/recordings")
+        @self._require_admin
+        def api_list_recordings():
+            recs = self.db.get_recordings()
+            return jsonify({"recordings": recs})
+
+        @self.app.route("/api/admin/recordings/<int:rec_id>", methods=["DELETE"])
+        @self._require_admin
+        def api_delete_recording(rec_id):
+            filename = self.db.delete_recording(rec_id)
+            if filename:
+                fpath = os.path.join(self.recordings_dir, filename)
+                if os.path.isfile(fpath):
+                    try:
+                        os.remove(fpath)
+                    except OSError:
+                        pass
+            self._log(f"Recording deleted: {rec_id}")
+            return jsonify({"status": "ok"})
+
+        # --- Admin: Server Settings ---
+        @self.app.route("/api/admin/settings", methods=["GET"])
+        @self._require_admin
+        def api_get_settings():
+            settings = self.db.get_all_settings()
+            return jsonify({"settings": settings})
+
+        @self.app.route("/api/admin/settings", methods=["POST"])
+        @self._require_admin
+        def api_save_settings():
+            data = request.get_json()
+            for key, value in data.items():
+                self.db.set_setting(key, str(value))
+            self._log("Settings updated")
+            return jsonify({"status": "ok"})
+
         # --- Files ---
         def _verify_user(self_ref):
             """Check if uploader is an authenticated socket user."""
@@ -365,7 +477,6 @@ class BROServer:
             name = f"{int(time.time())}_{safe}"
             f.save(os.path.join(config.UPLOAD_FOLDER, name))
             size = os.path.getsize(os.path.join(config.UPLOAD_FOLDER, name))
-            # Enforce max 100MB per file
             if size > 100 * 1024 * 1024:
                 os.remove(os.path.join(config.UPLOAD_FOLDER, name))
                 return jsonify({"error": "حجم الملف كبير جداً (100MB كحد أقصى)"}), 400
@@ -389,7 +500,6 @@ class BROServer:
                     if cl.get("username") in members:
                         self.sio.emit("file_shared", info, room=sid)
             elif target_user:
-                # DM file - send only to target and sender
                 for sid, cl in self.clients.items():
                     if cl.get("username") in (target_user, uploaded_by):
                         self.sio.emit("file_shared", info, room=sid)
@@ -397,9 +507,28 @@ class BROServer:
                 self.sio.emit("file_shared", info)
             return jsonify({"status": "ok", "file": info})
 
+        @self.app.route("/api/upload-recording", methods=["POST"])
+        def upload_recording():
+            uploader = _verify_user(self)
+            if not uploader:
+                return jsonify({"error": "غير مصرح"}), 401
+            f = request.files.get("recording")
+            if not f or not f.filename:
+                return jsonify({"error": "No recording"}), 400
+            callee = request.form.get("callee", "unknown")
+            call_type = request.form.get("call_type", "audio")
+            duration = request.form.get("duration", 0, type=int)
+            ts = int(time.time())
+            name = f"recording_{ts}_{secure_filename(f.filename) or 'rec.webm'}"
+            fpath = os.path.join(self.recordings_dir, name)
+            f.save(fpath)
+            size = os.path.getsize(fpath)
+            rec_id = self.db.save_recording(uploader, callee, call_type, name, size, duration)
+            self._log(f"Recording saved: {name}")
+            return jsonify({"status": "ok", "id": rec_id})
+
         @self.app.route("/api/download/<filename>")
         def download(filename):
-            # Allow admin or any authenticated socket user
             if not session.get("admin"):
                 user = request.args.get("u", "")
                 if not user or not any(c.get("username") == user for c in self.clients.values()):
@@ -411,6 +540,20 @@ class BROServer:
             if not os.path.isfile(fpath):
                 return jsonify({"error": "الملف غير موجود"}), 404
             return send_from_directory(config.UPLOAD_FOLDER, safe, as_attachment=True)
+
+        @self.app.route("/api/recording/<filename>")
+        def download_recording(filename):
+            if not session.get("admin"):
+                user = request.args.get("u", "")
+                if not user or not any(c.get("username") == user for c in self.clients.values()):
+                    return jsonify({"error": "غير مصرح"}), 401
+            safe = secure_filename(filename)
+            if not safe or safe != filename:
+                return jsonify({"error": "اسم ملف غير صالح"}), 400
+            fpath = os.path.join(self.recordings_dir, safe)
+            if not os.path.isfile(fpath):
+                return jsonify({"error": "التسجيل غير موجود"}), 404
+            return send_from_directory(self.recordings_dir, safe, as_attachment=True)
 
         @self.app.route("/api/files")
         def list_files():
@@ -497,7 +640,6 @@ class BROServer:
             client = self.clients.pop(sid, {})
             name = client.get("username")
             if name:
-                # Only set offline if no other sessions for this user
                 still_online = any(c.get("username") == name for c in self.clients.values())
                 if not still_online:
                     self.db.set_offline(name)
@@ -527,7 +669,6 @@ class BROServer:
             if len(username) > 30:
                 emit("auth_result", {"ok": False, "error": "الاسم طويل جداً"})
                 return
-            # Allow Arabic, alphanumeric, underscores, hyphens, spaces
             if not re.match(r'^[\w\u0600-\u06FF\u0750-\u077F\s\-]+$', username):
                 emit("auth_result", {"ok": False, "error": "الاسم يحتوي على رموز غير مسموحة"})
                 return
@@ -541,7 +682,8 @@ class BROServer:
                 self.db.set_status(username, "online")
                 self._log(f"Registered: {username}")
                 rooms = self.db.get_user_rooms(username)
-                emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token})
+                role = self.db.get_user_role(username)
+                emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token, "role": role})
                 self._broadcast_users()
             else:
                 emit("auth_result", {"ok": False, "error": "الاسم مستخدم بالفعل"})
@@ -569,7 +711,8 @@ class BROServer:
                 self.db.set_status(username, "online")
                 self._log(f"Logged in: {username}")
                 rooms = self.db.get_user_rooms(username)
-                emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token})
+                role = self.db.get_user_role(username)
+                emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token, "role": role})
                 self._broadcast_users()
             else:
                 self._log(f"Failed login: {username} from {ip}", "warning")
@@ -589,7 +732,8 @@ class BROServer:
                 self.db.set_status(username, "online")
                 self._log(f"Token resume: {username}")
                 rooms = self.db.get_user_rooms(username)
-                emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token})
+                role = self.db.get_user_role(username)
+                emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token, "role": role})
                 self._broadcast_users()
             else:
                 emit("auth_result", {"ok": False, "error": "الجلسة انتهت، سجل دخول مرة ثانية", "token_expired": True})
@@ -626,7 +770,6 @@ class BROServer:
                 self._log(f"Room created: {name} by {username}")
                 rooms = self.db.get_user_rooms(username)
                 emit("rooms_updated", {"rooms": rooms})
-                # Notify all users about new room
                 self.sio.emit("room_created", {"id": room_id, "name": name, "description": desc})
             else:
                 emit("room_error", {"error": "الغرفة موجودة بالفعل"})
@@ -752,20 +895,20 @@ class BROServer:
             target_user = data.get("target_user")
             room_id = data.get("room_id")
             reply_to = data.get("reply_to")
+            encrypted = data.get("encrypted", False)
 
-            # Verify room membership
             if room_id:
                 members = self.db.get_room_members(room_id)
                 if sender not in members:
                     return
 
-            result = self.db.save_message(sender, text, target=target_user, room_id=room_id, reply_to=reply_to)
+            result = self.db.save_message(sender, text, target=target_user, room_id=room_id, reply_to=reply_to, encrypted=encrypted)
             msg = {
                 "id": result["id"], "sender": sender, "text": text,
                 "target_user": target_user, "room_id": room_id,
-                "reply_to": reply_to, "timestamp": result["timestamp"],
+                "reply_to": reply_to, "encrypted": encrypted,
+                "timestamp": result["timestamp"],
             }
-            # Attach reply info
             if reply_to:
                 ref = self.db.get_message(reply_to)
                 if ref:
@@ -793,7 +936,11 @@ class BROServer:
             username = client.get("username")
             msg_id = data.get("id")
             if username and msg_id:
-                self.db.delete_message(msg_id, username)
+                # Moderators and admins can delete any message
+                if self.db.has_permission(username, 'delete_message'):
+                    self.db.delete_message(msg_id)
+                else:
+                    self.db.delete_message(msg_id, username)
                 self.sio.emit("message_deleted", {"id": msg_id})
 
         @self.sio.on("search_messages")
@@ -806,7 +953,6 @@ class BROServer:
             query = (data.get("query") or "").strip()
             room_id = data.get("room_id")
             if query and len(query) >= 2:
-                # Only search in rooms user is a member of, or own DMs
                 if room_id:
                     members = self.db.get_room_members(room_id)
                     if username not in members:
@@ -840,6 +986,70 @@ class BROServer:
             if username and name:
                 self.db.update_display_name(username, name)
                 emit("profile_result", {"ok": True, "msg": "تم تحديث الاسم"})
+
+        # --- E2E Public Key Exchange ---
+        @self.sio.on("set_public_key")
+        def on_set_public_key(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
+            public_key = data.get("public_key", "")
+            if public_key:
+                self.db.set_public_key(username, public_key)
+
+        @self.sio.on("get_public_key")
+        def on_get_public_key(data):
+            target = data.get("username", "")
+            if target:
+                key = self.db.get_public_key(target)
+                emit("public_key_response", {"username": target, "public_key": key})
+
+        # --- Screen Share Signaling ---
+        @self.sio.on("screen_share_start")
+        def on_screen_start(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("screen_share_started", {
+                    "sender": request.sid,
+                    "sender_name": data.get("sender_name"),
+                }, room=target)
+
+        @self.sio.on("screen_share_stop")
+        def on_screen_stop(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("screen_share_stopped", {
+                    "sender": request.sid,
+                }, room=target)
+
+        @self.sio.on("screen_offer")
+        def on_screen_offer(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("screen_offer", {
+                    "sdp": data["sdp"], "type": data["type"],
+                    "sender": request.sid, "target": target,
+                }, room=target)
+
+        @self.sio.on("screen_answer")
+        def on_screen_answer(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("screen_answer", {
+                    "sdp": data["sdp"], "type": data["type"],
+                    "sender": request.sid, "target": target,
+                }, room=target)
+
+        @self.sio.on("screen_ice")
+        def on_screen_ice(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("screen_ice", {
+                    "candidate": data.get("candidate"),
+                    "sender": request.sid, "target": target,
+                }, room=target)
 
         # --- WebRTC signaling ---
         @self.sio.on("call_request")
