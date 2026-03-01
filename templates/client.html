@@ -231,13 +231,7 @@ let iceQ = [];
 let lastUsers = [];
 let callTimerInt=null, callStart=null;
 
-let iceConfig = {iceServers:[
-    {urls:'stun:stun.l.google.com:19302'},
-    {urls:'stun:stun1.l.google.com:19302'},
-    {urls:'turn:openrelay.metered.ca:80',username:'openrelayproject',credential:'openrelayproject'},
-    {urls:'turn:openrelay.metered.ca:443',username:'openrelayproject',credential:'openrelayproject'},
-    {urls:'turn:openrelay.metered.ca:443?transport=tcp',username:'openrelayproject',credential:'openrelayproject'},
-]};
+let iceConfig = {iceServers:[]};
 
 // --- Ringtone (Web Audio API) ---
 let ringCtx, ringOscArr, ringGain, ringTimer;
