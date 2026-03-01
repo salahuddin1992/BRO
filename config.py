@@ -25,6 +25,9 @@ MAX_FILE_SIZE = 0  # unlimited
 UPLOAD_FOLDER = os.path.join(RUNTIME_PATH, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
+# Database
+DB_PATH = os.path.join(RUNTIME_PATH, "helen_wifi.db")
+
 # WebRTC ICE Servers (local network only - no external servers)
 ICE_SERVERS = []
 

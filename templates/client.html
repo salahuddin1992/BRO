@@ -7,7 +7,8 @@
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 :root { --bg:#0a0a1a; --card:rgba(255,255,255,0.04); --border:rgba(255,255,255,0.08);
-        --text:#e0e0e0; --dim:rgba(255,255,255,0.4); --accent:#00d4ff; --green:#00e676; --red:#ff5252; --orange:#ff9100; }
+        --text:#e0e0e0; --dim:rgba(255,255,255,0.4); --accent:#00d4ff; --green:#00e676;
+        --red:#ff5252; --orange:#ff9100; --yellow:#ffd600; --purple:#b388ff; }
 body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var(--text); height:100vh; overflow:hidden; }
 
 /* Connection status bar */
@@ -15,30 +16,64 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
             background:var(--red); color:#fff; z-index:300; transform:translateY(-100%); transition:transform .3s; }
 .conn-bar.on { transform:translateY(0); }
 
-/* Login */
-.login { position:fixed; inset:0; background:rgba(0,0,0,0.85); display:flex; align-items:center; justify-content:center; z-index:100; }
-.login.hide { display:none; }
-.login-box { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:40px; text-align:center; width:320px; }
-.login-box h2 { color:var(--accent); margin-bottom:20px; }
-.login-box input { width:100%; padding:12px; background:rgba(255,255,255,0.07); border:1px solid var(--border);
-                   border-radius:10px; color:#fff; font-size:1em; outline:none; margin-bottom:14px; }
-.login-box button { width:100%; padding:12px; background:linear-gradient(135deg,#00d4ff,#0066ff); border:none;
-                    border-radius:10px; color:#fff; font-size:1em; cursor:pointer; }
+/* Auth Screen */
+.auth { position:fixed; inset:0; background:rgba(0,0,0,0.92); display:flex; align-items:center; justify-content:center; z-index:100; }
+.auth.hide { display:none; }
+.auth-box { background:var(--card); border:1px solid var(--border); border-radius:16px; padding:40px; text-align:center; width:340px;
+            backdrop-filter:blur(20px); }
+.auth-box h2 { color:var(--accent); margin-bottom:6px; }
+.auth-box .subtitle { color:var(--dim); font-size:.82em; margin-bottom:20px; }
+.auth-box input { width:100%; padding:12px; background:rgba(255,255,255,0.07); border:1px solid var(--border);
+                  border-radius:10px; color:#fff; font-size:1em; outline:none; margin-bottom:10px; }
+.auth-box input:focus { border-color:var(--accent); }
+.auth-box .abtn { width:100%; padding:12px; border:none; border-radius:10px; color:#fff; font-size:1em; cursor:pointer; margin-bottom:8px; }
+.auth-box .abtn.primary { background:linear-gradient(135deg,#00d4ff,#0066ff); }
+.auth-box .abtn.secondary { background:rgba(255,255,255,0.08); }
+.auth-box .abtn.secondary:hover { background:rgba(255,255,255,0.12); }
+.auth-error { background:rgba(255,50,50,0.15); border:1px solid rgba(255,50,50,0.25); color:var(--red);
+              padding:8px; border-radius:8px; font-size:.85em; margin-bottom:12px; display:none; }
+.auth-tabs { display:flex; gap:4px; margin-bottom:18px; }
+.auth-tabs button { flex:1; padding:8px; background:rgba(255,255,255,0.05); border:1px solid var(--border);
+                    border-radius:8px; color:var(--dim); cursor:pointer; font-size:.88em; }
+.auth-tabs button.on { background:rgba(0,212,255,0.1); border-color:var(--accent); color:var(--accent); }
 
 /* Layout */
 .app { display:grid; grid-template-columns:220px 1fr 260px; height:100vh; }
 
-/* Users */
-.users { background:rgba(255,255,255,0.02); border-left:1px solid var(--border); padding:14px; overflow-y:auto; }
-.sec-title { font-size:.78em; color:var(--dim); text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;
-             padding-bottom:6px; border-bottom:1px solid var(--border); }
-.user { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:8px; cursor:pointer; margin-bottom:3px; }
+/* Sidebar - Users & Rooms */
+.sidebar { background:rgba(255,255,255,0.02); border-left:1px solid var(--border); display:flex; flex-direction:column; overflow:hidden; }
+.sec-title { font-size:.78em; color:var(--dim); text-transform:uppercase; letter-spacing:1px; padding:10px 14px 6px;
+             border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:center; }
+.sec-title button { background:none; border:none; color:var(--accent); cursor:pointer; font-size:1.1em; padding:0 4px; }
+
+/* Status selector */
+.my-status { padding:10px 14px; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; }
+.my-status select { background:rgba(255,255,255,0.06); border:1px solid var(--border); color:var(--text);
+                    border-radius:6px; padding:4px 8px; font-size:.78em; outline:none; }
+
+/* Rooms list */
+.rooms-list { overflow-y:auto; max-height:40%; border-bottom:1px solid var(--border); }
+.room { display:flex; align-items:center; gap:8px; padding:8px 14px; cursor:pointer; font-size:.85em; }
+.room:hover { background:rgba(255,255,255,0.04); }
+.room.sel { background:rgba(0,212,255,0.1); }
+.room-icon { width:28px; height:28px; background:rgba(0,212,255,0.15); border-radius:6px;
+             display:flex; align-items:center; justify-content:center; font-size:.8em; color:var(--accent); }
+
+/* Users list */
+.users-list { flex:1; overflow-y:auto; padding-bottom:10px; }
+.user { display:flex; align-items:center; gap:8px; padding:8px 14px; border-radius:8px; cursor:pointer; margin:0 4px 2px; }
 .user:hover { background:rgba(255,255,255,0.04); }
 .user.sel { background:rgba(0,212,255,0.1); }
 .avatar { width:32px; height:32px; background:linear-gradient(135deg,#00d4ff,#0066ff); border-radius:50%;
-          display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:.85em; }
+          display:flex; align-items:center; justify-content:center; font-weight:bold; font-size:.85em; position:relative; }
+.status-dot { position:absolute; bottom:-1px; right:-1px; width:10px; height:10px; border-radius:50%;
+              border:2px solid var(--bg); }
+.status-dot.online { background:var(--green); }
+.status-dot.away { background:var(--yellow); }
+.status-dot.busy { background:var(--red); }
+.status-dot.offline { background:#555; }
 .uname { font-size:.85em; }
-.rbadge { font-size:.58em; background:rgba(0,212,255,0.15); color:var(--accent); padding:1px 5px; border-radius:6px; margin-right:4px; vertical-align:middle; }
+.rbadge { font-size:.58em; background:rgba(0,212,255,0.15); color:var(--accent); padding:1px 5px; border-radius:6px; margin-right:4px; }
 
 /* Center */
 .center { display:flex; flex-direction:column; }
@@ -78,6 +113,9 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 .file-msg { background:rgba(0,212,255,0.08); border:1px solid rgba(0,212,255,0.15); }
 .file-msg a { color:var(--accent); text-decoration:none; }
 
+/* Typing indicator */
+.typing-bar { padding:0 18px; min-height:20px; font-size:.75em; color:var(--accent); }
+
 /* Upload progress */
 .upload-bar { display:none; padding:6px 18px; border-top:1px solid var(--border); }
 .upload-bar.on { display:block; }
@@ -114,6 +152,17 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 .acc { background:var(--green); color:#fff; }
 .rej { background:var(--red); color:#fff; }
 
+/* Room create modal */
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:150; }
+.modal-overlay.on { display:flex; }
+.modal { background:#1a1a2e; border:1px solid var(--border); border-radius:14px; padding:30px; width:320px; }
+.modal h3 { color:var(--accent); margin-bottom:16px; text-align:center; }
+.modal input { width:100%; padding:10px; background:rgba(255,255,255,0.07); border:1px solid var(--border);
+               border-radius:8px; color:#fff; font-size:.9em; outline:none; margin-bottom:10px; }
+.modal button { width:100%; padding:10px; border:none; border-radius:8px; color:#fff; cursor:pointer; margin-bottom:6px; }
+.modal .mbtn-ok { background:linear-gradient(135deg,#00d4ff,#0066ff); }
+.modal .mbtn-cancel { background:rgba(255,255,255,0.08); }
+
 /* Mobile toggle */
 .mob-btn { display:none; position:fixed; top:10px; right:10px; z-index:60; width:38px; height:38px;
            border-radius:50%; border:1px solid var(--border); background:rgba(10,10,26,0.9);
@@ -121,9 +170,9 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 
 @media(max-width:768px) {
     .app { grid-template-columns:1fr; }
-    .users { display:none; position:fixed; top:0; right:0; width:260px; height:100vh; z-index:50;
+    .sidebar { display:none; position:fixed; top:0; right:0; width:280px; height:100vh; z-index:50;
              background:var(--bg); border-left:1px solid var(--border); box-shadow:-4px 0 20px rgba(0,0,0,0.6); }
-    .users.mob-on { display:block; }
+    .sidebar.mob-on { display:flex; }
     .info { display:none; }
     .mob-btn { display:flex; }
     #localVid { width:100px; }
@@ -138,12 +187,30 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 <!-- Mobile Toggle -->
 <button class="mob-btn" id="mobBtn" onclick="toggleMobile()">&#9776;</button>
 
-<!-- Login -->
-<div class="login" id="login">
-    <div class="login-box">
+<!-- Auth Screen -->
+<div class="auth" id="authScreen">
+    <div class="auth-box">
         <h2>هيلين WiFi</h2>
-        <input id="nameIn" placeholder="اسمك" autofocus>
-        <button onclick="doLogin()">دخول</button>
+        <div class="subtitle">اتصال داخلي</div>
+        <div class="auth-tabs">
+            <button class="on" id="tabLogin" onclick="switchTab('login')">دخول</button>
+            <button id="tabRegister" onclick="switchTab('register')">تسجيل جديد</button>
+        </div>
+        <div class="auth-error" id="authError"></div>
+        <input id="authUser" placeholder="اسم المستخدم" autofocus>
+        <input id="authPass" type="password" placeholder="كلمة المرور">
+        <button class="abtn primary" id="authBtn" onclick="doAuth()">دخول</button>
+    </div>
+</div>
+
+<!-- Room Create Modal -->
+<div class="modal-overlay" id="roomModal">
+    <div class="modal">
+        <h3>غرفة جديدة</h3>
+        <input id="roomNameIn" placeholder="اسم الغرفة">
+        <input id="roomDescIn" placeholder="وصف (اختياري)">
+        <button class="mbtn-ok" onclick="createRoom()">إنشاء</button>
+        <button class="mbtn-cancel" onclick="closeRoomModal()">إلغاء</button>
     </div>
 </div>
 
@@ -161,14 +228,29 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 
 <!-- App -->
 <div class="app">
-    <div class="users" id="usersPanel">
+    <div class="sidebar" id="sidebarPanel">
+        <!-- My Status -->
+        <div class="my-status">
+            <span style="font-size:.82em;">حالتي:</span>
+            <select id="myStatus" onchange="setMyStatus(this.value)">
+                <option value="online">متصل</option>
+                <option value="away">بعيد</option>
+                <option value="busy">مشغول</option>
+            </select>
+        </div>
+
+        <!-- Rooms -->
+        <div class="sec-title">الغرف <button onclick="openRoomModal()" title="غرفة جديدة">+</button></div>
+        <div class="rooms-list" id="roomList"></div>
+
+        <!-- Users -->
         <div class="sec-title">المتصلون</div>
-        <div id="userList"></div>
+        <div class="users-list" id="userList"></div>
     </div>
 
     <div class="center">
         <div class="topbar">
-            <span class="target" id="chatTarget">غرفة عامة</span>
+            <span class="target" id="chatTarget">عامة</span>
             <span class="call-timer" id="callTimer">00:00</span>
             <div class="btns">
                 <button class="cbtn voice" onclick="startCall('audio')" title="صوت">&#128222;</button>
@@ -190,6 +272,7 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 
         <div class="chat">
             <div class="msgs" id="msgs"></div>
+            <div class="typing-bar" id="typingBar"></div>
             <div class="upload-bar" id="uploadBar">
                 <div class="pbar"><div class="pfill" id="pFill"></div></div>
                 <div class="ptext"><span id="pName">...</span><span id="pPct">0%</span></div>
@@ -197,14 +280,14 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
             <div class="input-row">
                 <input type="file" id="fileIn" style="display:none" onchange="sendFile()">
                 <button class="fbtn" onclick="document.getElementById('fileIn').click()">&#128206;</button>
-                <input type="text" id="msgIn" placeholder="اكتب رسالتك..." onkeydown="if(event.key==='Enter')sendMsg()">
+                <input type="text" id="msgIn" placeholder="اكتب رسالتك..." onkeydown="handleMsgKey(event)" oninput="handleTyping()">
                 <button class="sbtn" onclick="sendMsg()">&#10148;</button>
             </div>
         </div>
     </div>
 
     <div class="info">
-        <div class="sec-title">معلومات</div>
+        <div class="sec-title" style="padding:0 0 6px;">معلومات</div>
         <div class="info-card">
             <h3>السيرفر</h3>
             <div class="irow"><span class="l">المعرف</span><span class="v" id="iServerId">--</span></div>
@@ -216,22 +299,62 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
             <div class="irow"><span class="l">رسائل</span><span class="v" id="iMsgs">0</span></div>
             <div class="irow"><span class="l">ملفات</span><span class="v" id="iFiles">0</span></div>
         </div>
-        <div class="sec-title" style="margin-top:14px;">ملفات مشتركة</div>
+        <div class="sec-title" style="padding:10px 0 6px;">ملفات مشتركة</div>
         <div id="sharedFiles"></div>
     </div>
 </div>
 
 <script src="/static/js/socket.io.min.js"></script>
 <script>
-let socket, me, selUser=null, selName=null;
+let socket, me;
+let selUser=null, selUserName=null, selRoom=null;
 let localStream, pc, inCall=null;
 let micOn=true, camOn=true;
 let msgCount=0, fileCount=0;
-let iceQ = [];
-let lastUsers = [];
+let iceQ=[], lastUsers=[], myRooms=[];
 let callTimerInt=null, callStart=null;
+let authMode='login';
+let typingTimeout=null, isTyping=false;
+let notifGranted=false;
 
 let iceConfig = {iceServers:[]};
+
+// --- Notifications ---
+function requestNotif(){
+    if('Notification' in window && Notification.permission==='default'){
+        Notification.requestPermission().then(p=>{ notifGranted=(p==='granted'); });
+    } else {
+        notifGranted = (Notification.permission==='granted');
+    }
+}
+function showNotif(title,body){
+    if(!notifGranted || document.hasFocus()) return;
+    try { new Notification(title, {body, icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">📡</text></svg>'}); } catch(e){}
+}
+
+// --- Auth ---
+function switchTab(mode){
+    authMode=mode;
+    document.getElementById('tabLogin').classList.toggle('on', mode==='login');
+    document.getElementById('tabRegister').classList.toggle('on', mode==='register');
+    document.getElementById('authBtn').textContent = mode==='login' ? 'دخول' : 'تسجيل';
+    document.getElementById('authError').style.display='none';
+}
+
+function doAuth(){
+    let user = document.getElementById('authUser').value.trim();
+    let pass = document.getElementById('authPass').value;
+    if(!user||!pass){ showAuthError('الاسم وكلمة المرور مطلوبين'); return; }
+    initSocket(user, pass);
+}
+
+function showAuthError(msg){
+    let el = document.getElementById('authError');
+    el.textContent=msg; el.style.display='block';
+}
+
+document.getElementById('authUser').addEventListener('keydown', e=>{ if(e.key==='Enter') document.getElementById('authPass').focus(); });
+document.getElementById('authPass').addEventListener('keydown', e=>{ if(e.key==='Enter') doAuth(); });
 
 // --- Ringtone (Web Audio API) ---
 let ringCtx, ringOscArr, ringGain, ringTimer;
@@ -279,9 +402,7 @@ function stopCallTimer(){
 }
 
 // --- Mobile ---
-function toggleMobile(){
-    document.getElementById('usersPanel').classList.toggle('mob-on');
-}
+function toggleMobile(){ document.getElementById('sidebarPanel').classList.toggle('mob-on'); }
 
 // --- Fullscreen ---
 function toggleFullscreen(){
@@ -291,25 +412,34 @@ function toggleFullscreen(){
     else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
 }
 
-document.getElementById('nameIn').addEventListener('keydown', e=>{ if(e.key==='Enter') doLogin(); });
-
-function doLogin(){
-    me = document.getElementById('nameIn').value.trim();
-    if(!me) return;
-    document.getElementById('login').classList.add('hide');
-    initSocket();
-}
-
-function initSocket(){
+// --- Socket ---
+function initSocket(user, pass){
     socket = io({reconnection:true, reconnectionDelay:1000, reconnectionAttempts:Infinity});
 
     socket.on('connect', ()=>{
         document.getElementById('connBar').classList.remove('on');
-        socket.emit('register',{username:me});
+        socket.emit(authMode==='register'?'auth_register':'auth_login', {username:user, password:pass});
     });
 
     socket.on('disconnect', ()=>{
         document.getElementById('connBar').classList.add('on');
+    });
+
+    socket.on('auth_result', d=>{
+        if(d.ok){
+            me = d.username;
+            myRooms = d.rooms || [];
+            document.getElementById('authScreen').classList.add('hide');
+            requestNotif();
+            renderRooms();
+            // Select general room by default
+            if(myRooms.length>0){
+                selectRoom(myRooms[0].id, myRooms[0].name);
+            }
+        } else {
+            showAuthError(d.error);
+            socket.disconnect();
+        }
     });
 
     socket.on('server_info', d=>{
@@ -333,7 +463,11 @@ function initSocket(){
     socket.on('chat_message', d=>{
         msgCount++;
         document.getElementById('iMsgs').textContent = msgCount;
-        addMsg(d.sender, d.text, d.sender===me, d.timestamp);
+        // Show only if message belongs to current view
+        if(shouldShowMsg(d)){
+            addMsg(d.sender, d.text, d.sender===me, d.timestamp);
+        }
+        if(d.sender!==me) showNotif(d.sender, d.text);
     });
 
     socket.on('file_shared', d=>{
@@ -341,6 +475,41 @@ function initSocket(){
         document.getElementById('iFiles').textContent = fileCount;
         fileMsg(d);
         addShared(d);
+        if(d.uploaded_by!==me) showNotif(d.uploaded_by, 'شارك ملف: '+d.name);
+    });
+
+    socket.on('rooms_updated', d=>{
+        myRooms = d.rooms;
+        renderRooms();
+    });
+
+    socket.on('room_created', d=>{
+        // New room available - could show notification
+    });
+
+    socket.on('room_history', d=>{
+        document.getElementById('msgs').innerHTML='';
+        (d.messages||[]).forEach(m=> addMsg(m.sender, m.text, m.sender===me, m.timestamp));
+        (d.files||[]).forEach(f=> fileMsg(f));
+    });
+
+    socket.on('dm_history', d=>{
+        document.getElementById('msgs').innerHTML='';
+        (d.messages||[]).forEach(m=> addMsg(m.sender, m.text, m.sender===me, m.timestamp));
+    });
+
+    socket.on('all_rooms', d=>{
+        showJoinRoomsList(d.rooms);
+    });
+
+    // Typing
+    socket.on('user_typing', d=>{
+        if(shouldShowTyping(d)){
+            document.getElementById('typingBar').textContent = d.username + ' يكتب...';
+        }
+    });
+    socket.on('user_stop_typing', d=>{
+        document.getElementById('typingBar').textContent = '';
     });
 
     // WebRTC
@@ -351,6 +520,7 @@ function initSocket(){
         document.getElementById('callPopup').classList.add('on');
         window._callType = d.call_type;
         startRing();
+        showNotif('مكالمة واردة', d.sender_name);
     });
 
     socket.on('call_accepted', async d=>{ await createOffer(d.sender); });
@@ -361,29 +531,121 @@ function initSocket(){
     socket.on('webrtc_ice', async d=> await handleIce(d));
 }
 
+// --- Should show message in current view ---
+function shouldShowMsg(d){
+    if(selRoom && d.room_id==selRoom) return true;
+    if(selUserName && !d.room_id && (d.sender===selUserName || d.target_user===selUserName)) return true;
+    if(!selRoom && !selUserName && !d.room_id && !d.target_user) return true;
+    return false;
+}
+function shouldShowTyping(d){
+    if(selRoom && d.room_id==selRoom) return true;
+    if(selUserName && !d.room_id && d.username===selUserName) return true;
+    return false;
+}
+
+// --- Rooms ---
+function renderRooms(){
+    document.getElementById('roomList').innerHTML = myRooms.map(r=>
+        `<div class="room ${selRoom===r.id?'sel':''}" onclick="selectRoom(${r.id},'${esc(r.name)}')">
+            <div class="room-icon">#</div>
+            <span>${esc(r.name)}</span>
+        </div>`
+    ).join('');
+}
+
+function selectRoom(id, name){
+    selRoom=id; selUserName=null; selUser=null;
+    document.getElementById('chatTarget').textContent = '# '+name;
+    document.getElementById('msgs').innerHTML='';
+    document.getElementById('typingBar').textContent='';
+    renderRooms();
+    renderUsers(lastUsers);
+    socket.emit('get_room_history', {room_id:id});
+    document.getElementById('sidebarPanel').classList.remove('mob-on');
+}
+
+function openRoomModal(){ document.getElementById('roomModal').classList.add('on'); }
+function closeRoomModal(){ document.getElementById('roomModal').classList.remove('on'); }
+
+function createRoom(){
+    let name = document.getElementById('roomNameIn').value.trim();
+    let desc = document.getElementById('roomDescIn').value.trim();
+    if(!name) return;
+    socket.emit('create_room', {name, description:desc});
+    document.getElementById('roomNameIn').value='';
+    document.getElementById('roomDescIn').value='';
+    closeRoomModal();
+}
+
+// --- Users ---
 function renderUsers(users){
     document.getElementById('userList').innerHTML = users.filter(u=>u.username!==me).map(u=>
         `<div class="user ${selUser===u.sid?'sel':''}" onclick="pickUser('${u.sid}','${esc(u.username)}')">
-            <div class="avatar">${u.username[0].toUpperCase()}</div>
+            <div class="avatar">${u.username[0].toUpperCase()}<span class="status-dot ${u.status||'online'}"></span></div>
             <div class="uname">${esc(u.username)}${u.remote?'<span class="rbadge">mesh</span>':''}</div>
         </div>`
     ).join('');
 }
 
 function pickUser(sid,name){
-    selUser = selUser===sid ? null : sid;
-    selName = selUser ? name : null;
-    document.getElementById('chatTarget').textContent = selUser ? 'محادثة مع '+name : 'غرفة عامة';
+    if(selUser===sid){ selUser=null; selUserName=null; }
+    else { selUser=sid; selUserName=name; selRoom=null; }
+    document.getElementById('chatTarget').textContent = selUser ? name : (myRooms.length ? '# '+myRooms[0].name : 'عامة');
+    document.getElementById('msgs').innerHTML='';
+    document.getElementById('typingBar').textContent='';
     renderUsers(lastUsers);
-    document.getElementById('usersPanel').classList.remove('mob-on');
+    renderRooms();
+    if(selUserName){
+        socket.emit('get_dm_history', {username:selUserName});
+    } else if(myRooms.length){
+        selRoom = myRooms[0].id;
+        renderRooms();
+        socket.emit('get_room_history', {room_id:selRoom});
+    }
+    document.getElementById('sidebarPanel').classList.remove('mob-on');
 }
 
+// --- Status ---
+function setMyStatus(status){
+    if(socket) socket.emit('set_status', {status});
+}
+
+// --- Typing ---
+function handleTyping(){
+    if(!socket) return;
+    if(!isTyping){
+        isTyping=true;
+        if(selUser) socket.emit('typing', {target_sid:selUser});
+        else if(selRoom) socket.emit('typing', {room_id:selRoom});
+    }
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(()=>{
+        isTyping=false;
+        if(selUser) socket.emit('stop_typing', {target_sid:selUser});
+        else if(selRoom) socket.emit('stop_typing', {room_id:selRoom});
+    }, 2000);
+}
+
+function handleMsgKey(e){
+    if(e.key==='Enter') sendMsg();
+}
+
+// --- Chat ---
 function sendMsg(){
     let input = document.getElementById('msgIn');
     let text = input.value.trim();
     if(!text) return;
-    socket.emit('chat_message',{sender:me, text, target:selUser});
+    let payload = {text};
+    if(selUserName) payload.target_user = selUserName;
+    else if(selRoom) payload.room_id = selRoom;
+    socket.emit('chat_message', payload);
     input.value='';
+    // Stop typing
+    isTyping=false;
+    clearTimeout(typingTimeout);
+    if(selUser) socket.emit('stop_typing', {target_sid:selUser});
+    else if(selRoom) socket.emit('stop_typing', {room_id:selRoom});
 }
 
 function addMsg(sender,text,mine,ts){
@@ -423,12 +685,13 @@ function addShared(data){
     el.prepend(d);
 }
 
-// File Upload
+// --- File Upload ---
 function sendFile(){
     let f = document.getElementById('fileIn').files[0];
     if(!f) return;
     let form = new FormData();
     form.append('file',f); form.append('username',me);
+    if(selRoom) form.append('room_id', selRoom);
 
     let bar = document.getElementById('uploadBar');
     let fill = document.getElementById('pFill');
@@ -450,7 +713,7 @@ function sendFile(){
     xhr.send(form);
 }
 
-// WebRTC
+// --- WebRTC ---
 async function startCall(type){
     if(!selUser){ sysMsg('اختر مستخدم'); return; }
     window._callType = type;

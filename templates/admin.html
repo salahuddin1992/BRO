@@ -68,6 +68,7 @@ th { color:var(--dim); font-weight:500; }
     <div class="logo"><h2>هيلين WiFi</h2><small>لوحة التحكم</small></div>
     <div class="nav on" onclick="show('dash')"><span>الرئيسية</span></div>
     <div class="nav" onclick="show('clients')"><span>العملاء</span></div>
+    <div class="nav" onclick="show('rooms')"><span>الغرف</span></div>
     <div class="nav" onclick="show('net')"><span>الشبكة</span></div>
     <div class="nav" onclick="show('mesh')"><span>Mesh</span></div>
     <div class="nav" onclick="show('msgs')"><span>الرسائل</span></div>
@@ -89,6 +90,8 @@ th { color:var(--dim); font-weight:500; }
             <div class="stat o"><div class="lbl">الرسائل</div><div class="val" id="vMsgs">0</div></div>
             <div class="stat p"><div class="lbl">الملفات</div><div class="val" id="vFiles">0</div></div>
             <div class="stat f"><div class="lbl">مستخدمون بعيدون</div><div class="val" id="vRemote">0</div></div>
+            <div class="stat"><div class="lbl">مسجلون</div><div class="val" id="vRegistered" style="color:var(--purple)">0</div></div>
+            <div class="stat"><div class="lbl">الغرف</div><div class="val" id="vRooms" style="color:var(--accent)">0</div></div>
         </div>
         <div class="stats">
             <div class="stat"><div class="lbl">التشغيل</div><div class="val" id="vUp" style="font-size:1.1em">--</div></div>
@@ -106,6 +109,12 @@ th { color:var(--dim); font-weight:500; }
     <div class="sec" id="s-clients">
         <div class="panel"><div class="ptitle">العملاء المتصلون</div>
         <table><thead><tr><th>المعرف</th><th>المستخدم</th><th>IP</th><th>الوقت</th></tr></thead><tbody id="tCl"></tbody></table></div>
+    </div>
+
+    <!-- Rooms -->
+    <div class="sec" id="s-rooms">
+        <div class="panel"><div class="ptitle">الغرف</div>
+        <table><thead><tr><th>المعرف</th><th>الاسم</th><th>الوصف</th><th>المنشئ</th><th>التاريخ</th></tr></thead><tbody id="tRooms"></tbody></table></div>
     </div>
 
     <!-- Network -->
@@ -159,7 +168,7 @@ function show(name){
     document.querySelectorAll('.nav').forEach(n=>n.classList.remove('on'));
     document.getElementById('s-'+name).classList.add('on');
     let navs = document.querySelectorAll('.nav');
-    let map = ['dash','clients','net','mesh','msgs','files','fiber','logs'];
+    let map = ['dash','clients','rooms','net','mesh','msgs','files','fiber','logs'];
     let idx = map.indexOf(name);
     if(idx>=0 && navs[idx]) navs[idx].classList.add('on');
     cur=name;
@@ -184,7 +193,15 @@ async function refresh(){
         document.getElementById('vUp').textContent = fmtUp(d.uptime);
         document.getElementById('vIp').textContent = d.host_ip;
         document.getElementById('vPort').textContent = d.port;
+        document.getElementById('vRegistered').textContent = d.registered_users || 0;
+        document.getElementById('vRooms').textContent = (d.rooms||[]).length;
         if(d.is_fiber) document.getElementById('fiberStat').style.display='block';
+
+        // Rooms
+        document.getElementById('tRooms').innerHTML = (d.rooms||[]).map(r=>
+            `<tr><td>${r.id}</td><td>${esc(r.name)}</td><td>${esc(r.description||'--')}</td>
+            <td>${esc(r.created_by||'--')}</td><td>${fmtTime(r.created_at)}</td></tr>`).join('')
+            || '<tr><td colspan="5" style="text-align:center;color:var(--dim)">لا توجد غرف</td></tr>';
 
         // Recent clients
         document.getElementById('tRC').innerHTML = d.clients.slice(-5).map(c=>

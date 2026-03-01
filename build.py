@@ -31,7 +31,7 @@ def main():
     # 3. Build
     print("[3/3] Building...")
     data = []
-    for folder in ["templates", "static", "server", "network", "mesh", "utils"]:
+    for folder in ["templates", "static", "server", "network", "mesh", "database", "utils"]:
         p = os.path.join(DIR, folder)
         if os.path.exists(p):
             data += ["--add-data", f"{p}{SEP}{folder}"]
@@ -43,7 +43,8 @@ def main():
               "flask", "flask_socketio", "flask_cors", "engineio", "engineio.async_drivers.eventlet",
               "socketio", "dns", "dns.resolver", "config",
               "server", "server.bro_server", "server.signaling",
-              "network", "network.detector", "mesh", "mesh.mesh_node"]
+              "network", "network.detector", "mesh", "mesh.mesh_node",
+              "database", "database.db"]
     h_args = []
     for h in hidden:
         h_args += ["--hidden-import", h]
