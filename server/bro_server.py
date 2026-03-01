@@ -163,7 +163,10 @@ class BROServer:
                 "files_count": self.db.count_files(),
                 "files": self.db.get_files(limit=50),
                 "registered_users": self.db.count_users(),
+                "banned_users": self.db.count_banned(),
+                "all_users": self.db.get_all_users(),
                 "rooms": self.db.get_rooms(),
+                "db_size": self.db.get_db_size(),
                 "network": self.detector.to_dict_list(),
                 "mesh": mesh_stats,
                 "remote_users": self.mesh.get_all_remote_users(),
@@ -177,6 +180,114 @@ class BROServer:
         def api_mesh_connect():
             data = request.get_json()
             self.mesh.connect_to(data.get("host"), int(data.get("port", config.SERVER_PORT)))
+            return jsonify({"status": "ok"})
+
+        # --- Admin: User Management ---
+        @self.app.route("/api/admin/users/<username>/ban", methods=["POST"])
+        @self._require_admin
+        def api_ban_user(username):
+            self.db.ban_user(username)
+            # Kick from active sessions
+            for sid, cl in list(self.clients.items()):
+                if cl.get("username") == username:
+                    self.sio.emit("force_disconnect", {"reason": "تم حظرك"}, room=sid)
+            # Remove auth tokens
+            self.auth_tokens = {t: u for t, u in self.auth_tokens.items() if u != username}
+            self._log(f"Admin banned: {username}", "warning")
+            self._broadcast_users()
+            return jsonify({"status": "ok"})
+
+        @self.app.route("/api/admin/users/<username>/unban", methods=["POST"])
+        @self._require_admin
+        def api_unban_user(username):
+            self.db.unban_user(username)
+            self._log(f"Admin unbanned: {username}")
+            return jsonify({"status": "ok"})
+
+        @self.app.route("/api/admin/users/<username>/kick", methods=["POST"])
+        @self._require_admin
+        def api_kick_user(username):
+            for sid, cl in list(self.clients.items()):
+                if cl.get("username") == username:
+                    self.sio.emit("force_disconnect", {"reason": "تم طردك"}, room=sid)
+            self._log(f"Admin kicked: {username}", "warning")
+            return jsonify({"status": "ok"})
+
+        @self.app.route("/api/admin/users/<username>/delete", methods=["DELETE"])
+        @self._require_admin
+        def api_delete_user(username):
+            # Kick first
+            for sid, cl in list(self.clients.items()):
+                if cl.get("username") == username:
+                    self.sio.emit("force_disconnect", {"reason": "تم حذف حسابك"}, room=sid)
+            self.auth_tokens = {t: u for t, u in self.auth_tokens.items() if u != username}
+            self.db.delete_user(username)
+            self._log(f"Admin deleted user: {username}", "warning")
+            self._broadcast_users()
+            return jsonify({"status": "ok"})
+
+        @self.app.route("/api/admin/users/<username>/reset-password", methods=["POST"])
+        @self._require_admin
+        def api_reset_password(username):
+            data = request.get_json()
+            new_pw = data.get("password", "")
+            if len(new_pw) < 4:
+                return jsonify({"error": "كلمة المرور قصيرة"}), 400
+            self.db.admin_reset_password(username, new_pw)
+            self._log(f"Admin reset password: {username}")
+            return jsonify({"status": "ok"})
+
+        # --- Admin: Room Management ---
+        @self.app.route("/api/admin/rooms/<int:room_id>", methods=["DELETE"])
+        @self._require_admin
+        def api_delete_room(room_id):
+            self.db.delete_room(room_id)
+            self._log(f"Admin deleted room: {room_id}", "warning")
+            return jsonify({"status": "ok"})
+
+        # --- Admin: Message Management ---
+        @self.app.route("/api/admin/messages/<int:msg_id>", methods=["DELETE"])
+        @self._require_admin
+        def api_delete_message(msg_id):
+            self.db.delete_message(msg_id)
+            self.sio.emit("message_deleted", {"id": msg_id})
+            return jsonify({"status": "ok"})
+
+        @self.app.route("/api/admin/messages/by-user/<username>", methods=["DELETE"])
+        @self._require_admin
+        def api_delete_user_messages(username):
+            self.db.admin_delete_messages_by_user(username)
+            self._log(f"Admin deleted all messages by: {username}", "warning")
+            return jsonify({"status": "ok"})
+
+        # --- Admin: File Management ---
+        @self.app.route("/api/admin/files/<int:file_id>", methods=["DELETE"])
+        @self._require_admin
+        def api_delete_file(file_id):
+            saved_as = self.db.delete_file(file_id)
+            if saved_as:
+                fpath = os.path.join(config.UPLOAD_FOLDER, saved_as)
+                if os.path.isfile(fpath):
+                    try:
+                        os.remove(fpath)
+                    except OSError:
+                        pass
+            self._log(f"Admin deleted file: {file_id}", "warning")
+            return jsonify({"status": "ok"})
+
+        # --- Admin: Change admin password ---
+        @self.app.route("/api/admin/change-password", methods=["POST"])
+        @self._require_admin
+        def api_change_admin_pw():
+            data = request.get_json()
+            old = data.get("old_password", "")
+            new = data.get("new_password", "")
+            if old != config.ADMIN_PASSWORD:
+                return jsonify({"error": "كلمة المرور الحالية خطأ"}), 400
+            if len(new) < 4:
+                return jsonify({"error": "كلمة المرور الجديدة قصيرة"}), 400
+            config.ADMIN_PASSWORD = new
+            self._log("Admin password changed")
             return jsonify({"status": "ok"})
 
         # --- Files ---
@@ -349,7 +460,10 @@ class BROServer:
             if not username or not password:
                 emit("auth_result", {"ok": False, "error": "الاسم وكلمة المرور مطلوبين"})
                 return
-            if self.db.authenticate(username, password):
+            auth = self.db.authenticate(username, password)
+            if auth is None:
+                emit("auth_result", {"ok": False, "error": "تم حظر هذا الحساب"})
+            elif auth:
                 token = self._gen_token(username)
                 self.clients[sid]["username"] = username
                 self.clients[sid]["status"] = "online"
@@ -367,6 +481,9 @@ class BROServer:
             sid = request.sid
             token = data.get("token", "")
             username = self.auth_tokens.get(token)
+            if username and self.db.is_banned(username):
+                emit("auth_result", {"ok": False, "error": "تم حظر هذا الحساب", "token_expired": True})
+                return
             if username and self.db.user_exists(username):
                 self.clients[sid]["username"] = username
                 self.clients[sid]["status"] = "online"
@@ -519,30 +636,78 @@ class BROServer:
             text = data.get("text", "")
             target_user = data.get("target_user")
             room_id = data.get("room_id")
+            reply_to = data.get("reply_to")
 
-            ts = self.db.save_message(sender, text, target=target_user, room_id=room_id)
+            result = self.db.save_message(sender, text, target=target_user, room_id=room_id, reply_to=reply_to)
             msg = {
-                "sender": sender, "text": text,
+                "id": result["id"], "sender": sender, "text": text,
                 "target_user": target_user, "room_id": room_id,
-                "timestamp": ts,
+                "reply_to": reply_to, "timestamp": result["timestamp"],
             }
+            # Attach reply info
+            if reply_to:
+                ref = self.db.get_message(reply_to)
+                if ref:
+                    msg["reply_info"] = {"sender": ref["sender"], "text": ref["text"][:80]}
 
             if target_user:
-                # DM: send to target user's session(s)
                 for csid, cl in self.clients.items():
                     if cl.get("username") == target_user:
                         self.sio.emit("chat_message", msg, room=csid)
                 emit("chat_message", msg)
             elif room_id:
-                # Room message: send to all room members
                 members = self.db.get_room_members(room_id)
                 for csid, cl in self.clients.items():
                     if cl.get("username") in members:
                         self.sio.emit("chat_message", msg, room=csid)
             else:
-                # Broadcast
                 self.sio.emit("chat_message", msg)
                 self.mesh.broadcast_to_peers("chat_message", msg)
+
+        @self.sio.on("delete_message")
+        def on_delete_msg(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            msg_id = data.get("id")
+            if username and msg_id:
+                self.db.delete_message(msg_id, username)
+                self.sio.emit("message_deleted", {"id": msg_id})
+
+        @self.sio.on("search_messages")
+        def on_search(data):
+            query = (data.get("query") or "").strip()
+            room_id = data.get("room_id")
+            if query and len(query) >= 2:
+                results = self.db.search_messages(query, room_id=room_id)
+                emit("search_results", {"query": query, "results": results})
+
+        @self.sio.on("change_password")
+        def on_change_pw(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
+            old_pw = data.get("old_password", "")
+            new_pw = data.get("new_password", "")
+            if len(new_pw) < 4:
+                emit("profile_result", {"ok": False, "error": "كلمة المرور قصيرة (4 أحرف على الأقل)"})
+                return
+            if self.db.change_password(username, old_pw, new_pw):
+                emit("profile_result", {"ok": True, "msg": "تم تغيير كلمة المرور"})
+            else:
+                emit("profile_result", {"ok": False, "error": "كلمة المرور الحالية خطأ"})
+
+        @self.sio.on("update_display_name")
+        def on_display_name(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            name = (data.get("display_name") or "").strip()
+            if username and name:
+                self.db.update_display_name(username, name)
+                emit("profile_result", {"ok": True, "msg": "تم تحديث الاسم"})
 
         # --- WebRTC signaling ---
         @self.sio.on("call_request")
