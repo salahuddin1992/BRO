@@ -113,13 +113,20 @@ class MeshNode:
             time.sleep(5)
 
     def _send_broadcast(self, msg):
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sock.sendto(json.dumps(msg).encode(), ("<broadcast>", self.mesh_port))
-            sock.close()
-        except OSError:
-            pass
+        data = json.dumps(msg).encode()
+        for addr in ("255.255.255.255", "<broadcast>"):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                sock.sendto(data, (addr, self.mesh_port))
+                sock.close()
+                return
+            except OSError:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+                continue
 
     def _cleanup(self):
         while self._running:

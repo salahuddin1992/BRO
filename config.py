@@ -10,7 +10,31 @@ RUNTIME_PATH = os.environ.get("BRO_RUNTIME_PATH", os.path.dirname(os.path.abspat
 # Server
 SERVER_HOST = "0.0.0.0"
 SERVER_PORT = int(os.environ.get("BRO_PORT", 8400))
-SECRET_KEY = os.environ.get("BRO_SECRET", secrets.token_hex(32))
+
+# SECRET_KEY: persisted to file so it survives restarts and is shared across mesh
+_SECRET_FILE = os.path.join(RUNTIME_PATH, ".secret_key")
+def _load_or_create_secret():
+    env = os.environ.get("BRO_SECRET")
+    if env:
+        return env
+    if os.path.isfile(_SECRET_FILE):
+        try:
+            with open(_SECRET_FILE, "r") as f:
+                key = f.read().strip()
+            if len(key) >= 32:
+                return key
+        except OSError:
+            pass
+    key = secrets.token_hex(32)
+    try:
+        with open(_SECRET_FILE, "w") as f:
+            f.write(key)
+        os.chmod(_SECRET_FILE, 0o600)
+    except OSError:
+        pass
+    return key
+
+SECRET_KEY = _load_or_create_secret()
 
 # Admin
 ADMIN_USERNAME = os.environ.get("BRO_ADMIN_USER", "admin")
@@ -21,15 +45,19 @@ MESH_PORT = 8401
 MESH_MAX_SERVERS = 100
 
 # Files
-MAX_FILE_SIZE = 0  # unlimited
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 UPLOAD_FOLDER = os.path.join(RUNTIME_PATH, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # Database
 DB_PATH = os.path.join(RUNTIME_PATH, "helen_wifi.db")
 
-# WebRTC ICE Servers (local network only - no external servers)
-ICE_SERVERS = []
+# WebRTC ICE Servers
+# Local STUN helps WebRTC even on LAN when behind NAT
+ICE_SERVERS = [
+    {"urls": "stun:stun.l.google.com:19302"},
+    {"urls": "stun:stun1.l.google.com:19302"},
+]
 
 # Fiber Router Types
 FIBER_TYPES = {

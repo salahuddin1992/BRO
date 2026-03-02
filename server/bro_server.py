@@ -11,6 +11,7 @@ import time
 import hmac
 import hashlib
 import logging
+import secrets
 import threading
 import webbrowser
 from datetime import datetime
@@ -54,8 +55,8 @@ class BROServer:
             static_folder=os.path.join(config.BASE_PATH, "static"),
         )
         self.app.secret_key = config.SECRET_KEY
-        self.app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024  # 100MB
-        CORS(self.app)
+        self.app.config["MAX_CONTENT_LENGTH"] = config.MAX_FILE_SIZE
+        CORS(self.app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=False)
 
         # Database
         self.db = Database(config.DB_PATH)
@@ -82,12 +83,14 @@ class BROServer:
         self.mesh = MeshNode(self.server_id, self.host_ip, config.SERVER_PORT, config.MESH_PORT)
         self.signaling = SignalingServer(self.sio)
 
-        # State (online sessions)
+        # State (online sessions) - thread-safe via lock
+        self._clients_lock = threading.Lock()
         self.clients = {}       # {sid: {sid, username, ip, connected_at, status}}
         self.auth_tokens = {}   # {token: {username, created_at}}  - session persistence
         self._TOKEN_TTL = 7 * 24 * 3600  # 7 days
         self.logs = []
         self.typing_state = {}  # {sid: {target, username, timestamp}}
+        self._MAX_MSG_LEN = 5000  # max message length in characters
 
         # Backup directory
         self.backup_dir = os.path.join(config.RUNTIME_PATH, "backups")
@@ -101,6 +104,9 @@ class BROServer:
         self._auth_attempts = defaultdict(list)
         self._AUTH_MAX = 5          # max attempts
         self._AUTH_WINDOW = 60      # per 60 seconds
+
+        # CSRF protection for admin routes
+        self._csrf_tokens = {}  # {token: created_at}
 
         self._setup_routes()
         self._setup_events()
@@ -141,11 +147,31 @@ class BROServer:
         if len(self.logs) > 500:
             self.logs = self.logs[-500:]
 
+    def _gen_csrf(self):
+        token = secrets.token_hex(32)
+        self._csrf_tokens[token] = time.time()
+        # Cleanup old tokens (>4 hours)
+        cutoff = time.time() - 4 * 3600
+        self._csrf_tokens = {t: ts for t, ts in self._csrf_tokens.items() if ts > cutoff}
+        return token
+
+    def _check_csrf(self):
+        token = (request.headers.get("X-CSRF-Token") or
+                 request.form.get("_csrf") or
+                 (request.get_json(silent=True) or {}).get("_csrf", ""))
+        if token and token in self._csrf_tokens:
+            return True
+        return False
+
     def _require_admin(self, f):
         @wraps(f)
         def w(*a, **kw):
             if not session.get("admin"):
                 return redirect(url_for("login"))
+            # CSRF check for state-changing methods
+            if request.method in ("POST", "PUT", "DELETE", "PATCH"):
+                if not self._check_csrf():
+                    return jsonify({"error": "CSRF token مفقود"}), 403
             return f(*a, **kw)
         return w
 
@@ -186,7 +212,13 @@ class BROServer:
         @self.app.route("/admin")
         @self._require_admin
         def admin_page():
-            return render_template("admin.html")
+            csrf = self._gen_csrf()
+            return render_template("admin.html", csrf_token=csrf)
+
+        @self.app.route("/api/admin/csrf-token")
+        @self._require_admin
+        def api_csrf_token():
+            return jsonify({"token": self._gen_csrf()})
 
         # --- Admin API ---
         @self.app.route("/api/admin/stats")
@@ -452,7 +484,12 @@ class BROServer:
 
         # --- Files ---
         def _verify_user(self_ref):
-            """Check if uploader is an authenticated socket user."""
+            """Check if uploader is authenticated via token or active socket."""
+            token = request.form.get("token") or request.args.get("token", "")
+            if token:
+                uname = self_ref._get_token_user(token)
+                if uname:
+                    return uname
             uname = request.form.get("username", "")
             if not uname or uname == "?":
                 return None
@@ -530,9 +567,13 @@ class BROServer:
         @self.app.route("/api/download/<filename>")
         def download(filename):
             if not session.get("admin"):
-                user = request.args.get("u", "")
-                if not user or not any(c.get("username") == user for c in self.clients.values()):
-                    return jsonify({"error": "غير مصرح"}), 401
+                # Check token first, then fallback to username
+                token = request.args.get("token", "")
+                user = self._get_token_user(token) if token else None
+                if not user:
+                    user = request.args.get("u", "")
+                    if not user or not any(c.get("username") == user for c in self.clients.values()):
+                        return jsonify({"error": "غير مصرح"}), 401
             safe = secure_filename(filename)
             if not safe or safe != filename:
                 return jsonify({"error": "اسم ملف غير صالح"}), 400
@@ -544,9 +585,12 @@ class BROServer:
         @self.app.route("/api/recording/<filename>")
         def download_recording(filename):
             if not session.get("admin"):
-                user = request.args.get("u", "")
-                if not user or not any(c.get("username") == user for c in self.clients.values()):
-                    return jsonify({"error": "غير مصرح"}), 401
+                token = request.args.get("token", "")
+                user = self._get_token_user(token) if token else None
+                if not user:
+                    user = request.args.get("u", "")
+                    if not user or not any(c.get("username") == user for c in self.clients.values()):
+                        return jsonify({"error": "غير مصرح"}), 401
             safe = secure_filename(filename)
             if not safe or safe != filename:
                 return jsonify({"error": "اسم ملف غير صالح"}), 400
@@ -645,7 +689,18 @@ class BROServer:
                     self.db.set_offline(name)
                 self._log(f"Disconnected: {name}")
             self.signaling.handle_disconnect(sid)
-            self.typing_state.pop(sid, None)
+            # Notify typing recipients that this user stopped typing
+            ts = self.typing_state.pop(sid, None)
+            if ts and name:
+                target_sid = ts.get("target_sid")
+                room_id = ts.get("room_id")
+                if target_sid and target_sid in self.clients:
+                    self.sio.emit("user_stop_typing", {"username": name, "room_id": None}, room=target_sid)
+                elif room_id:
+                    members = self.db.get_room_members(room_id)
+                    for csid, cl in self.clients.items():
+                        if cl.get("username") in members and csid != sid:
+                            self.sio.emit("user_stop_typing", {"username": name, "room_id": room_id}, room=csid)
             self.sio.emit("user_offline", {"sid": sid, "username": name})
             self._broadcast_users()
 
@@ -856,6 +911,7 @@ class BROServer:
                 return
             target_sid = data.get("target_sid")
             room_id = data.get("room_id")
+            self.typing_state[sid] = {"target_sid": target_sid, "room_id": room_id}
             if target_sid and target_sid in self.clients:
                 self.sio.emit("user_typing", {"username": username, "room_id": None}, room=target_sid)
             elif room_id:
@@ -871,6 +927,7 @@ class BROServer:
             username = client.get("username")
             if not username:
                 return
+            self.typing_state.pop(sid, None)
             target_sid = data.get("target_sid")
             room_id = data.get("room_id")
             if target_sid and target_sid in self.clients:
@@ -892,6 +949,8 @@ class BROServer:
             text = (data.get("text") or "").strip()
             if not text:
                 return
+            if len(text) > self._MAX_MSG_LEN:
+                text = text[:self._MAX_MSG_LEN]
             target_user = data.get("target_user")
             room_id = data.get("room_id")
             reply_to = data.get("reply_to")

@@ -8,5 +8,6 @@ dist/
 uploads/
 *.log
 *.db
+.secret_key
 .env
 =*
