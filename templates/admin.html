@@ -291,6 +291,7 @@ th { color:var(--dim); font-weight:500; }
 <script src="/static/js/i18n.js"></script>
 <script>
 let cur='dash', allData=null;
+let csrfToken = '{{ csrf_token }}';
 
 function show(name){
     document.querySelectorAll('.sec').forEach(s=>s.classList.remove('on'));
@@ -320,12 +321,29 @@ function toast(msg, ok=true){
 function closeModal(id){ document.getElementById(id).classList.remove('on'); }
 
 async function apiPost(url, body={}){
-    let r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-    return r.json();
+    let r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': csrfToken}, body:JSON.stringify(body)});
+    let data = await r.json();
+    if(r.status === 403 && data.error && data.error.includes('CSRF')){
+        // Refresh CSRF token and retry
+        let tr = await fetch('/api/admin/csrf-token');
+        let td = await tr.json();
+        csrfToken = td.token;
+        r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json', 'X-CSRF-Token': csrfToken}, body:JSON.stringify(body)});
+        data = await r.json();
+    }
+    return data;
 }
 async function apiDelete(url){
-    let r = await fetch(url, {method:'DELETE'});
-    return r.json();
+    let r = await fetch(url, {method:'DELETE', headers:{'X-CSRF-Token': csrfToken}});
+    let data = await r.json();
+    if(r.status === 403 && data.error && data.error.includes('CSRF')){
+        let tr = await fetch('/api/admin/csrf-token');
+        let td = await tr.json();
+        csrfToken = td.token;
+        r = await fetch(url, {method:'DELETE', headers:{'X-CSRF-Token': csrfToken}});
+        data = await r.json();
+    }
+    return data;
 }
 
 async function refresh(){

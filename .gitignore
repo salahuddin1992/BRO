@@ -7,5 +7,7 @@ dist/
 *.egg-info/
 uploads/
 *.log
+*.db
+.secret_key
 .env
 =*

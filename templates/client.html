@@ -1322,11 +1322,17 @@ function handleMsgKey(e){
 }
 
 // --- Chat ---
-function sendMsg(){
+async function sendMsg(){
     let input = document.getElementById('msgIn');
     let text = input.value.trim();
     if(!text) return;
     let payload = {text};
+    // E2E encrypt for DM if enabled and key available
+    if(selUserName && appSettings.e2eEnabled && derivedKeys[selUserName]){
+        let enc = await encryptMsg(text, selUserName);
+        payload.text = enc.text;
+        payload.encrypted = enc.encrypted;
+    }
     if(selUserName) payload.target_user = selUserName;
     else if(selRoom) payload.room_id = selRoom;
     if(replyToId) payload.reply_to = replyToId;
@@ -1386,6 +1392,24 @@ function createMsgEl(d){
     let textDiv = document.createElement('div');
     textDiv.textContent = d.text;
     div.appendChild(textDiv);
+    // Decrypt E2E encrypted messages
+    if(d.encrypted && d.sender && d.sender !== me && derivedKeys[d.sender]){
+        (async()=>{
+            let plain = await decryptMsg(d.text, d.sender);
+            textDiv.textContent = plain;
+        })();
+        let lockIcon = document.createElement('span');
+        lockIcon.className = 'encrypted-icon';
+        lockIcon.textContent = '\u{1F512}';
+        lockIcon.title = 'رسالة مشفرة E2E';
+        div.appendChild(lockIcon);
+    } else if(d.encrypted && d.sender === me){
+        let lockIcon = document.createElement('span');
+        lockIcon.className = 'encrypted-icon';
+        lockIcon.textContent = '\u{1F512}';
+        lockIcon.title = 'رسالة مشفرة E2E';
+        div.appendChild(lockIcon);
+    }
 
     // Check if text is an image file link
     let ext = (d.text.match(/\.(\w+)$/)||[])[1];
