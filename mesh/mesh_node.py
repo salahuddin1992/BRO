@@ -10,6 +10,8 @@ import logging
 from datetime import datetime
 from urllib.request import Request, urlopen
 
+import msgpack
+
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
@@ -59,7 +61,11 @@ class MeshNode:
         while self._running:
             try:
                 data, addr = sock.recvfrom(65535)
-                msg = json.loads(data.decode())
+                # Try msgpack first, fallback to JSON for compatibility
+                try:
+                    msg = msgpack.unpackb(data, raw=False)
+                except Exception:
+                    msg = json.loads(data.decode())
                 self._handle(msg, addr)
             except socket.timeout:
                 continue
@@ -113,7 +119,7 @@ class MeshNode:
             time.sleep(5)
 
     def _send_broadcast(self, msg):
-        data = json.dumps(msg).encode()
+        data = msgpack.packb(msg, use_bin_type=True)
         for addr in ("255.255.255.255", "<broadcast>"):
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -281,7 +287,7 @@ class MeshNode:
         }
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.sendto(json.dumps(msg).encode(), (host, int(port)))
+            sock.sendto(msgpack.packb(msg, use_bin_type=True), (host, int(port)))
             sock.close()
             return True
         except OSError:

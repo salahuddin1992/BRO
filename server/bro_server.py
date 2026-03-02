@@ -22,6 +22,8 @@ from flask import (Flask, render_template, request, jsonify,
                    send_from_directory, session, redirect, url_for)
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.utils import secure_filename
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -31,6 +33,20 @@ from network.detector import NetworkDetector
 from mesh.mesh_node import MeshNode
 from server.signaling import SignalingServer
 from database.db import Database, ROLE_USER, ROLE_MODERATOR, ROLE_ADMIN
+from utils.thumbnails import generate_thumbnail, THUMB_DIR_NAME
+from utils.qr_generator import generate_qr_code
+from utils.monitor import get_system_stats, get_process_stats
+from utils.scheduler import init_scheduler, shutdown_scheduler
+from utils.compression import should_compress, compress_file
+from utils.notifications import (notify_server_started, notify_new_message,
+                                 notify_incoming_call, notify_file_shared)
+
+# python-magic: try import, fallback gracefully
+try:
+    import magic
+    _magic_available = True
+except ImportError:
+    _magic_available = False
 
 logger = logging.getLogger("HelenWiFi")
 
@@ -57,6 +73,14 @@ class BROServer:
         self.app.secret_key = config.SECRET_KEY
         self.app.config["MAX_CONTENT_LENGTH"] = config.MAX_FILE_SIZE
         CORS(self.app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=False)
+
+        # Rate Limiter (flask-limiter)
+        self.limiter = Limiter(
+            get_remote_address,
+            app=self.app,
+            default_limits=["200 per minute"],
+            storage_uri="memory://",
+        )
 
         # Database
         self.db = Database(config.DB_PATH)
@@ -99,6 +123,16 @@ class BROServer:
         # Recordings directory
         self.recordings_dir = os.path.join(config.RUNTIME_PATH, "recordings")
         os.makedirs(self.recordings_dir, exist_ok=True)
+
+        # Thumbnails directory
+        self.thumb_dir = os.path.join(config.UPLOAD_FOLDER, THUMB_DIR_NAME)
+        os.makedirs(self.thumb_dir, exist_ok=True)
+
+        # QR Code (generated on server start in run())
+        self._qr_b64 = None
+
+        # Scheduler (initialized in run())
+        self._scheduler = None
 
         # Brute force protection: {ip: [timestamps]}
         self._auth_attempts = defaultdict(list)
@@ -191,6 +225,7 @@ class BROServer:
             return password == config.ADMIN_PASSWORD
 
         @self.app.route("/login", methods=["GET", "POST"])
+        @self.limiter.limit("10 per minute")
         def login():
             if request.method == "POST":
                 ip = request.remote_addr
@@ -250,6 +285,8 @@ class BROServer:
                 "fiber_types": config.FIBER_TYPES,
                 "recordings_count": self.db.count_recordings(),
                 "logs": self.logs[-50:],
+                "system": get_system_stats(),
+                "process": get_process_stats(),
             })
 
         @self.app.route("/api/admin/mesh/connect", methods=["POST"])
@@ -499,6 +536,7 @@ class BROServer:
             return None
 
         @self.app.route("/api/upload", methods=["POST"])
+        @self.limiter.limit("30 per minute")
         def upload():
             uploader = _verify_user(self)
             if not uploader:
@@ -512,14 +550,37 @@ class BROServer:
             if ext and ext not in ALLOWED_EXTENSIONS:
                 return jsonify({"error": f"نوع الملف غير مسموح: .{ext}"}), 400
             name = f"{int(time.time())}_{safe}"
-            f.save(os.path.join(config.UPLOAD_FOLDER, name))
-            size = os.path.getsize(os.path.join(config.UPLOAD_FOLDER, name))
+            save_path = os.path.join(config.UPLOAD_FOLDER, name)
+            f.save(save_path)
+            # Validate MIME type with python-magic
+            if _magic_available:
+                try:
+                    mime = magic.from_file(save_path, mime=True)
+                    dangerous_mimes = {"application/x-executable", "application/x-dosexec",
+                                       "application/x-sharedlib", "application/x-mach-binary"}
+                    if mime in dangerous_mimes:
+                        os.remove(save_path)
+                        return jsonify({"error": "نوع الملف غير مسموح (ملف تنفيذي)"}), 400
+                except Exception:
+                    pass
+            size = os.path.getsize(save_path)
             if size > 100 * 1024 * 1024:
                 os.remove(os.path.join(config.UPLOAD_FOLDER, name))
                 return jsonify({"error": "حجم الملف كبير جداً (100MB كحد أقصى)"}), 400
             uploaded_by = uploader
             room_id = request.form.get("room_id", type=int)
             target_user = request.form.get("target_user")
+
+            # Generate thumbnail for images
+            thumb = generate_thumbnail(config.UPLOAD_FOLDER, name)
+
+            # Compress compressible files
+            if should_compress(name, size):
+                try:
+                    compressed_path = compress_file(save_path, save_path + ".zst")
+                    # Keep compressed version alongside original
+                except Exception:
+                    pass
 
             self.db.save_file(original, name, size, uploaded_by, room_id)
             info = {
@@ -529,8 +590,10 @@ class BROServer:
                 "uploaded_at": datetime.utcnow().isoformat(),
                 "room_id": room_id,
                 "target_user": target_user,
+                "thumbnail": thumb,
             }
             self._log(f"File: {f.filename}")
+            notify_file_shared(uploaded_by, f.filename)
             if room_id:
                 members = self.db.get_room_members(room_id)
                 for sid, cl in self.clients.items():
@@ -607,6 +670,27 @@ class BROServer:
         @self.app.route("/api/ice-config")
         def ice_config():
             return jsonify({"iceServers": config.ICE_SERVERS})
+
+        # --- QR Code ---
+        @self.app.route("/api/qr-code")
+        def api_qr_code():
+            if self._qr_b64:
+                return jsonify({"qr": self._qr_b64})
+            url = f"http://{self.host_ip}:{config.SERVER_PORT}/client"
+            self._qr_b64 = generate_qr_code(url)
+            return jsonify({"qr": self._qr_b64})
+
+        # --- Thumbnail ---
+        @self.app.route("/api/thumbnail/<filename>")
+        def serve_thumbnail(filename):
+            safe = secure_filename(filename)
+            if not safe or safe != filename:
+                return jsonify({"error": "اسم ملف غير صالح"}), 400
+            thumb_name = f"thumb_{safe}"
+            thumb_path = os.path.join(self.thumb_dir, thumb_name)
+            if os.path.isfile(thumb_path):
+                return send_from_directory(self.thumb_dir, thumb_name)
+            return jsonify({"error": "الصورة المصغرة غير موجودة"}), 404
 
         # --- Mesh Inter-server API ---
         def _check_mesh_secret():
@@ -1113,6 +1197,7 @@ class BROServer:
         # --- WebRTC signaling ---
         @self.sio.on("call_request")
         def on_call_req(data):
+            notify_incoming_call(data.get("sender_name", "?"), data.get("call_type", "video"))
             self._route_event("incoming_call", {
                 "sender": request.sid,
                 "sender_name": data.get("sender_name"),
@@ -1209,6 +1294,17 @@ class BROServer:
         self.mesh.start()
         self._log(f"Server started: {self.server_id}")
 
+        # Generate QR code for easy connection
+        client_url = f"http://{self.host_ip}:{port}/client"
+        self._qr_b64 = generate_qr_code(client_url)
+        self._log("QR code generated for client connection")
+
+        # Start scheduled tasks (auto-backup, cleanup)
+        self._scheduler = init_scheduler(self.db, config.UPLOAD_FOLDER, self.backup_dir)
+
+        # Desktop notification
+        notify_server_started(self.host_ip, port)
+
         if not silent:
             print(f"""
   Helen WiFi - هيلين WiFi
@@ -1218,12 +1314,16 @@ class BROServer:
   Database  : {config.DB_PATH}
   Client    : http://{self.host_ip}:{port}/client
   Admin     : http://{self.host_ip}:{port}/admin
+  QR Code   : http://{self.host_ip}:{port}/api/qr-code
 """)
 
         if getattr(sys, 'frozen', False):
             threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}/client")).start()
 
-        self.sio.run(self.app, host=host, port=port, debug=False, log_output=not silent)
+        try:
+            self.sio.run(self.app, host=host, port=port, debug=False, log_output=not silent)
+        finally:
+            shutdown_scheduler()
 
 
 def create_app():

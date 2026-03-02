@@ -54,12 +54,16 @@ def build_server():
 
     hidden = [
         "eventlet", "eventlet.hubs", "eventlet.hubs.epolls", "eventlet.hubs.selects",
-        "flask", "flask_socketio", "flask_cors",
+        "flask", "flask_socketio", "flask_cors", "flask_limiter",
         "engineio", "engineio.async_drivers.eventlet",
         "socketio", "dns", "dns.resolver", "config",
         "server", "server.bro_server", "server.signaling",
         "network", "network.detector", "mesh", "mesh.mesh_node",
         "database", "database.db",
+        "utils", "utils.crypto", "utils.thumbnails", "utils.qr_generator",
+        "utils.monitor", "utils.scheduler", "utils.compression", "utils.notifications",
+        "cryptography", "PIL", "qrcode", "psutil", "apscheduler",
+        "msgpack", "zstandard", "cachetools", "plyer",
     ]
     h_args = []
     for h in hidden:
