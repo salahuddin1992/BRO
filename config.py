@@ -53,11 +53,11 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 DB_PATH = os.path.join(RUNTIME_PATH, "helen_wifi.db")
 
 # WebRTC ICE Servers
-# Local STUN helps WebRTC even on LAN when behind NAT
-ICE_SERVERS = [
-    {"urls": "stun:stun.l.google.com:19302"},
-    {"urls": "stun:stun1.l.google.com:19302"},
-]
+# Local-only: no external STUN servers needed - uses local STUN on port 3478
+ICE_SERVERS = []
+
+# Multi-Network: broadcast mesh discovery on all detected subnets
+MULTI_NETWORK = True
 
 # Fiber Router Types
 FIBER_TYPES = {

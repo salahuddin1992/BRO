@@ -20,10 +20,11 @@ SERVICE_NAME_PREFIX = "HelenWiFi-"
 class ServiceDiscovery:
     """mDNS/DNS-SD service discovery for automatic peer finding."""
 
-    def __init__(self, server_id, host_ip, port):
+    def __init__(self, server_id, host_ip, port, all_ips=None):
         self.server_id = server_id
         self.host_ip = host_ip
         self.port = port
+        self.all_ips = all_ips or [host_ip]  # all interface IPs for multi-network
         self._zeroconf = None
         self._browser = None
         self._service_info = None
@@ -70,29 +71,38 @@ class ServiceDiscovery:
         logger.info("mDNS discovery stopped")
 
     def _register_service(self):
-        """Register this Helen WiFi server on the local network."""
+        """Register this Helen WiFi server on all detected network interfaces."""
         service_name = f"{SERVICE_NAME_PREFIX}{self.server_id}.{SERVICE_TYPE}"
 
-        try:
-            ip_packed = socket.inet_aton(self.host_ip)
-        except OSError:
-            ip_packed = socket.inet_aton("127.0.0.1")
+        # Pack all interface IPs for multi-network advertisement
+        addresses = []
+        for ip in self.all_ips:
+            try:
+                addresses.append(socket.inet_aton(ip))
+            except OSError:
+                continue
+        if not addresses:
+            try:
+                addresses = [socket.inet_aton(self.host_ip)]
+            except OSError:
+                addresses = [socket.inet_aton("127.0.0.1")]
 
         self._service_info = ServiceInfo(
             type_=SERVICE_TYPE,
             name=service_name,
-            addresses=[ip_packed],
+            addresses=addresses,
             port=self.port,
             properties={
                 "server_id": self.server_id,
                 "version": "1.0",
                 "name": "Helen WiFi",
+                "ips": ",".join(self.all_ips),
             },
         )
 
         try:
             self._zeroconf.register_service(self._service_info)
-            logger.info(f"Registered mDNS service: {service_name}")
+            logger.info(f"Registered mDNS on {len(addresses)} interface(s): {', '.join(self.all_ips)}")
         except Exception as e:
             logger.warning(f"Service registration failed: {e}")
 
@@ -116,12 +126,15 @@ class ServiceDiscovery:
         if not addresses:
             return
 
+        # Get all advertised IPs from properties (multi-network)
+        all_ips = props.get("ips", "").split(",") if props.get("ips") else addresses
         peer_info = {
             "server_id": peer_id,
             "host": addresses[0],
             "port": info.port,
             "name": props.get("name", "Helen WiFi"),
             "version": props.get("version", "?"),
+            "all_ips": all_ips,
         }
 
         with self._lock:

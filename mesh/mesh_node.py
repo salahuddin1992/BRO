@@ -20,11 +20,12 @@ logger = logging.getLogger("BRO.mesh")
 
 
 class MeshNode:
-    def __init__(self, server_id, host, port, mesh_port=8401):
+    def __init__(self, server_id, host, port, mesh_port=8401, interfaces=None):
         self.server_id = server_id
         self.host = host
         self.port = port            # HTTP server port
         self.mesh_port = mesh_port  # UDP discovery port
+        self.interfaces = interfaces or []  # all detected network interfaces
         self.peers = {}             # {peer_id: {server_id, host, port, mesh_port, last_seen, ...}}
         self.remote_users = {}      # {server_id: [{sid, username}]}
         self._local_users = []      # cached for periodic sync
@@ -88,6 +89,8 @@ class MeshNode:
                     "mesh_port": msg.get("mesh_port", self.mesh_port),
                     "last_seen": datetime.utcnow().isoformat(),
                     "peer_count": msg.get("peer_count", 0),
+                    "all_ips": msg.get("all_ips", [msg.get("host", addr[0])]),
+                    "reachable_ip": addr[0],  # IP that actually delivered the packet
                 }
             if is_new:
                 logger.info(f"Mesh peer: {sid} at {addr[0]}")
@@ -104,6 +107,7 @@ class MeshNode:
     def _broadcast(self):
         tick = 0
         while self._running:
+            all_ips = [i["ip"] for i in self.interfaces] if self.interfaces else [self.host]
             self._send_broadcast({
                 "type": "announce",
                 "server_id": self.server_id,
@@ -111,6 +115,7 @@ class MeshNode:
                 "port": self.port,
                 "mesh_port": self.mesh_port,
                 "peer_count": len(self.peers),
+                "all_ips": all_ips,
             })
             # Periodic user sync every 10s
             tick += 1
@@ -118,21 +123,42 @@ class MeshNode:
                 self._do_sync(self._local_users)
             time.sleep(5)
 
+    def _get_broadcast_addresses(self):
+        """Calculate broadcast addresses for all detected subnets."""
+        import struct as _struct
+        broadcasts = set()
+        for iface in self.interfaces:
+            ip = iface.get("ip", "")
+            mask = iface.get("netmask", "255.255.255.0")
+            if not ip or not mask:
+                continue
+            try:
+                ip_int = _struct.unpack(">I", socket.inet_aton(ip))[0]
+                mask_int = _struct.unpack(">I", socket.inet_aton(mask))[0]
+                bcast_int = ip_int | (~mask_int & 0xFFFFFFFF)
+                bcast = socket.inet_ntoa(_struct.pack(">I", bcast_int))
+                broadcasts.add(bcast)
+            except Exception:
+                continue
+        # Always include global broadcast as fallback
+        broadcasts.add("255.255.255.255")
+        return list(broadcasts)
+
     def _send_broadcast(self, msg):
         data = msgpack.packb(msg, use_bin_type=True)
-        for addr in ("255.255.255.255", "<broadcast>"):
+        # Broadcast to every subnet's broadcast address (multi-network)
+        targets = self._get_broadcast_addresses()
+        for addr in targets:
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 sock.sendto(data, (addr, self.mesh_port))
                 sock.close()
-                return
             except OSError:
                 try:
                     sock.close()
                 except Exception:
                     pass
-                continue
 
     def _cleanup(self):
         while self._running:
@@ -165,8 +191,10 @@ class MeshNode:
             self._sync_to_peer(peer, local_users)
 
     def _sync_to_peer(self, peer, local_users):
+        # Use reachable_ip (the IP that delivered UDP) if available, fallback to host
+        host = peer.get("reachable_ip", peer["host"])
         try:
-            url = f"http://{peer['host']}:{peer['port']}/api/mesh/sync-users"
+            url = f"http://{host}:{peer['port']}/api/mesh/sync-users"
             requests.post(url, json={
                 "server_id": self.server_id,
                 "host": self.host,
@@ -182,8 +210,9 @@ class MeshNode:
             peer = self.peers.get(target_server_id)
         if not peer:
             return False
+        host = peer.get("reachable_ip", peer["host"])
         try:
-            url = f"http://{peer['host']}:{peer['port']}/api/mesh/forward"
+            url = f"http://{host}:{peer['port']}/api/mesh/forward"
             requests.post(url, json={"event": event, "data": data},
                           headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=5)
             return True
@@ -199,8 +228,9 @@ class MeshNode:
         with self._lock:
             peers = list(self.peers.values())
         for peer in peers:
+            host = peer.get("reachable_ip", peer["host"])
             try:
-                url = f"http://{peer['host']}:{peer['port']}/api/mesh/broadcast"
+                url = f"http://{host}:{peer['port']}/api/mesh/broadcast"
                 requests.post(url, json={"event": event, "data": data},
                               headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=3)
             except Exception:
@@ -263,6 +293,8 @@ class MeshNode:
                     "mesh_port": info.get("mesh_port", self.mesh_port),
                     "last_seen": datetime.utcnow().isoformat(),
                     "peer_count": 0,
+                    "all_ips": [host],
+                    "reachable_ip": host,
                 }
             logger.info(f"Manual connect: {sid} at {host}:{port}")
             if self._local_users:
@@ -272,7 +304,8 @@ class MeshNode:
             return True
         except Exception:
             pass
-        # Fallback: UDP announce
+        # Fallback: UDP announce to all subnets
+        all_ips = [i["ip"] for i in self.interfaces] if self.interfaces else [self.host]
         msg = {
             "type": "announce",
             "server_id": self.server_id,
@@ -280,6 +313,7 @@ class MeshNode:
             "port": self.port,
             "mesh_port": self.mesh_port,
             "peer_count": len(self.peers),
+            "all_ips": all_ips,
         }
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)

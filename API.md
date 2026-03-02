@@ -405,10 +405,12 @@ Get WebRTC ICE server configuration.
 ```json
 {
   "iceServers": [
-    {"urls": "stun:stun.l.google.com:19302"}
+    {"urls": "stun:192.168.1.100:3478"},
+    {"urls": "stun:10.0.0.5:3478"}
   ]
 }
 ```
+- **Note:** Local STUN only - no external internet servers. Returns STUN entries for each detected network interface.
 
 ---
 
@@ -480,8 +482,9 @@ Sent immediately after connection.
 ```json
 {
   "server_id": "abc123def456",
-  "ice_servers": [{"urls": "stun:stun.l.google.com:19302"}],
-  "is_fiber": false
+  "ice_servers": [{"urls": "stun:192.168.1.100:3478"}],
+  "is_fiber": false,
+  "networks": [{"ip": "192.168.1.100", "type": "WiFi", "name": "wlan0"}]
 }
 ```
 

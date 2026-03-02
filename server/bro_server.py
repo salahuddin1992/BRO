@@ -95,26 +95,29 @@ class BROServer:
         else:
             self._admin_pw_hash = None  # use plain config.ADMIN_PASSWORD as fallback
 
-        # Network
+        # Network - detect ALL interfaces for multi-network support
         self.detector = NetworkDetector()
         self.detector.detect_all()
         best = self.detector.get_best_interface()
         self.host_ip = best["ip"] if best else "0.0.0.0"
+        self.all_ips = self.detector.get_all_ips()
         self.is_fiber = self.detector.has_fiber()
 
         # SocketIO
         self.sio = SocketIO(self.app, cors_allowed_origins="*", async_mode="eventlet",
                             max_http_buffer_size=10*1024*1024, ping_timeout=60, ping_interval=25)
 
-        # Mesh + Signaling
-        self.mesh = MeshNode(self.server_id, self.host_ip, config.SERVER_PORT, config.MESH_PORT)
+        # Mesh + Signaling (pass all interfaces for multi-network broadcast)
+        self.mesh = MeshNode(self.server_id, self.host_ip, config.SERVER_PORT, config.MESH_PORT,
+                             interfaces=self.detector.interfaces)
         self.signaling = SignalingServer(self.sio)
 
         # Local TURN/STUN server (WebRTC without internet)
         self.turn_server = LocalTurnServer()
 
-        # mDNS/Zeroconf discovery (auto-find peers like AirDrop)
-        self.discovery = ServiceDiscovery(self.server_id, self.host_ip, config.SERVER_PORT)
+        # mDNS/Zeroconf discovery (auto-find peers - register on all interfaces)
+        self.discovery = ServiceDiscovery(self.server_id, self.host_ip, config.SERVER_PORT,
+                                          all_ips=self.all_ips)
 
         # WebSocket mesh bridge (persistent peer-to-peer connections)
         self.ws_mesh = WebSocketMeshBridge(
@@ -687,9 +690,12 @@ class BROServer:
 
         @self.app.route("/api/ice-config")
         def ice_config():
-            # Include local STUN server alongside external ones
-            local_stun = self.turn_server.get_ice_server_config(self.host_ip)
-            servers = [local_stun] + config.ICE_SERVERS
+            # Local-only: use our own STUN server on each detected interface
+            servers = []
+            for iface in self.detector.interfaces:
+                servers.append({"urls": f"stun:{iface['ip']}:{self.turn_server.port}"})
+            if not servers:
+                servers.append(self.turn_server.get_ice_server_config(self.host_ip))
             return jsonify({"iceServers": servers})
 
         # --- QR Code ---
@@ -777,10 +783,17 @@ class BROServer:
                 "connected_at": datetime.utcnow().isoformat(),
                 "status": "online",
             }
+            # Local-only ICE: our STUN server on all interfaces
+            local_ice = []
+            for iface in self.detector.interfaces:
+                local_ice.append({"urls": f"stun:{iface['ip']}:{self.turn_server.port}"})
+            if not local_ice:
+                local_ice.append(self.turn_server.get_ice_server_config(self.host_ip))
             emit("server_info", {
                 "server_id": self.server_id,
-                "ice_servers": config.ICE_SERVERS,
+                "ice_servers": local_ice,
                 "is_fiber": self.is_fiber,
+                "networks": [{"ip": i["ip"], "type": i["type"], "name": i["name"]} for i in self.detector.interfaces],
             })
 
         @self.sio.on("disconnect")
@@ -1356,18 +1369,24 @@ class BROServer:
         notify_server_started(self.host_ip, port)
 
         if not silent:
+            net_lines = ""
+            for iface in self.detector.interfaces:
+                net_lines += f"    {iface['name']:12s} {iface['ip']:16s} ({iface['type']})\n"
+            if not net_lines:
+                net_lines = f"    {'auto':12s} {self.host_ip:16s}\n"
             print(f"""
-  Helen WiFi - هيلين WiFi
+  Helen WiFi - هيلين WiFi (LAN Only / Multi-Network)
   Server ID : {self.server_id}
-  IP        : {self.host_ip}:{port}
-  Fiber     : {'Yes' if self.is_fiber else 'No'}
+  Primary IP: {self.host_ip}:{port}
+  Networks  :
+{net_lines}  Fiber     : {'Yes' if self.is_fiber else 'No'}
   Database  : {config.DB_PATH}
   Client    : http://{self.host_ip}:{port}/client
   Admin     : http://{self.host_ip}:{port}/admin
   QR Code   : http://{self.host_ip}:{port}/api/qr-code
-  STUN      : stun:{self.host_ip}:3478
+  STUN      : Local only (stun:{self.host_ip}:3478)
   WS Mesh   : ws://{self.host_ip}:{port + 2}
-  mDNS      : Active (auto-discovery)
+  mDNS      : Active (auto-discovery on all networks)
 """)
 
         if getattr(sys, 'frozen', False):
