@@ -237,6 +237,25 @@ class NetworkDetector:
     def get_all_ips(self):
         return [i["ip"] for i in self.interfaces]
 
+    def get_broadcast_addresses(self):
+        """Calculate the broadcast address for each interface's subnet."""
+        broadcasts = []
+        for iface in self.interfaces:
+            ip = iface.get("ip", "")
+            mask = iface.get("netmask", "255.255.255.0")
+            if not ip or not mask:
+                continue
+            try:
+                ip_int = struct.unpack(">I", socket.inet_aton(ip))[0]
+                mask_int = struct.unpack(">I", socket.inet_aton(mask))[0]
+                bcast_int = ip_int | (~mask_int & 0xFFFFFFFF)
+                bcast = socket.inet_ntoa(struct.pack(">I", bcast_int))
+                if bcast not in broadcasts:
+                    broadcasts.append(bcast)
+            except Exception:
+                continue
+        return broadcasts
+
     def has_fiber(self):
         return any(i["is_fiber"] for i in self.interfaces)
 
