@@ -30,6 +30,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 from network.detector import NetworkDetector
+from network.turn_server import LocalTurnServer
+from network.discovery import ServiceDiscovery
+from network.ws_mesh import WebSocketMeshBridge
 from mesh.mesh_node import MeshNode
 from server.signaling import SignalingServer
 from database.db import Database, ROLE_USER, ROLE_MODERATOR, ROLE_ADMIN
@@ -106,6 +109,17 @@ class BROServer:
         # Mesh + Signaling
         self.mesh = MeshNode(self.server_id, self.host_ip, config.SERVER_PORT, config.MESH_PORT)
         self.signaling = SignalingServer(self.sio)
+
+        # Local TURN/STUN server (WebRTC without internet)
+        self.turn_server = LocalTurnServer()
+
+        # mDNS/Zeroconf discovery (auto-find peers like AirDrop)
+        self.discovery = ServiceDiscovery(self.server_id, self.host_ip, config.SERVER_PORT)
+
+        # WebSocket mesh bridge (persistent peer-to-peer connections)
+        self.ws_mesh = WebSocketMeshBridge(
+            self.server_id, self.host_ip, config.SERVER_PORT, config.SECRET_KEY
+        )
 
         # State (online sessions) - thread-safe via lock
         self._clients_lock = threading.Lock()
@@ -287,6 +301,10 @@ class BROServer:
                 "logs": self.logs[-50:],
                 "system": get_system_stats(),
                 "process": get_process_stats(),
+                "discovery": {
+                    "mdns_peers": self.discovery.get_discovered_peers(),
+                },
+                "ws_mesh": self.ws_mesh.get_stats(),
             })
 
         @self.app.route("/api/admin/mesh/connect", methods=["POST"])
@@ -669,7 +687,10 @@ class BROServer:
 
         @self.app.route("/api/ice-config")
         def ice_config():
-            return jsonify({"iceServers": config.ICE_SERVERS})
+            # Include local STUN server alongside external ones
+            local_stun = self.turn_server.get_ice_server_config(self.host_ip)
+            servers = [local_stun] + config.ICE_SERVERS
+            return jsonify({"iceServers": servers})
 
         # --- QR Code ---
         @self.app.route("/api/qr-code")
@@ -1294,6 +1315,35 @@ class BROServer:
         self.mesh.start()
         self._log(f"Server started: {self.server_id}")
 
+        # Start local TURN/STUN server (WebRTC without internet)
+        self.turn_server.start()
+        self._log("Local STUN/TURN server started")
+
+        # Start mDNS/Zeroconf discovery (auto-find peers)
+        def _on_mdns_peer_found(peer_info):
+            self._log(f"mDNS discovered: {peer_info['server_id']} at {peer_info['host']}:{peer_info['port']}")
+            self.mesh.connect_to(peer_info["host"], peer_info["port"])
+            self.ws_mesh.connect_to_peer(peer_info["host"], peer_info["port"])
+
+        def _on_mdns_peer_lost(peer_info):
+            self._log(f"mDNS peer lost: {peer_info.get('server_id', '?')}")
+
+        self.discovery.start(on_peer_found=_on_mdns_peer_found, on_peer_lost=_on_mdns_peer_lost)
+
+        # Start WebSocket mesh bridge (persistent connections)
+        def _on_ws_message(data):
+            event = data.get("type")
+            if event == "user_sync":
+                peer_id = data.get("_from_peer")
+                users = data.get("users", [])
+                if peer_id:
+                    self.mesh.update_remote_users(peer_id, users)
+                    self._broadcast_users(sync=False)
+            elif event == "chat_forward":
+                self.sio.emit("chat_message", data.get("message", {}))
+
+        self.ws_mesh.start(on_message=_on_ws_message)
+
         # Generate QR code for easy connection
         client_url = f"http://{self.host_ip}:{port}/client"
         self._qr_b64 = generate_qr_code(client_url)
@@ -1315,6 +1365,9 @@ class BROServer:
   Client    : http://{self.host_ip}:{port}/client
   Admin     : http://{self.host_ip}:{port}/admin
   QR Code   : http://{self.host_ip}:{port}/api/qr-code
+  STUN      : stun:{self.host_ip}:3478
+  WS Mesh   : ws://{self.host_ip}:{port + 2}
+  mDNS      : Active (auto-discovery)
 """)
 
         if getattr(sys, 'frozen', False):
@@ -1323,6 +1376,9 @@ class BROServer:
         try:
             self.sio.run(self.app, host=host, port=port, debug=False, log_output=not silent)
         finally:
+            self.turn_server.stop()
+            self.discovery.stop()
+            self.ws_mesh.stop()
             shutdown_scheduler()
 
 

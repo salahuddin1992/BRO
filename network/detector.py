@@ -1,5 +1,6 @@
 """
 Network Detector - Auto-detect interfaces including Fiber Optic
+Uses netifaces for cross-platform network interface detection.
 """
 import socket
 import struct
@@ -7,6 +8,13 @@ import subprocess
 import platform
 import json
 import logging
+
+# netifaces: fast cross-platform network info (fallback to subprocess if unavailable)
+try:
+    import netifaces
+    _netifaces_available = True
+except ImportError:
+    _netifaces_available = False
 
 logger = logging.getLogger("BRO.network")
 
@@ -36,16 +44,57 @@ class NetworkDetector:
 
     def detect_all(self):
         self.interfaces = []
-        system = platform.system().lower()
-        if system == "linux":
-            self._detect_linux()
-        elif system == "windows":
-            self._detect_windows()
-        elif system == "darwin":
-            self._detect_macos()
+        # Try netifaces first (cross-platform, no subprocess needed)
+        if _netifaces_available:
+            self._detect_netifaces()
+        # Fallback to OS-specific subprocess detection
+        if not self.interfaces:
+            system = platform.system().lower()
+            if system == "linux":
+                self._detect_linux()
+            elif system == "windows":
+                self._detect_windows()
+            elif system == "darwin":
+                self._detect_macos()
         if not self.interfaces:
             self._detect_fallback()
         return self.interfaces
+
+    def _detect_netifaces(self):
+        """Detect network interfaces using netifaces (fast, cross-platform)."""
+        try:
+            gateways = netifaces.gateways()
+            default_gw = None
+            if "default" in gateways and netifaces.AF_INET in gateways["default"]:
+                default_gw = gateways["default"][netifaces.AF_INET][0]
+
+            for iface_name in netifaces.interfaces():
+                if iface_name == "lo" or iface_name.startswith("lo"):
+                    continue
+                addrs = netifaces.ifaddresses(iface_name)
+                if netifaces.AF_INET not in addrs:
+                    continue
+                for addr_info in addrs[netifaces.AF_INET]:
+                    ip = addr_info.get("addr", "")
+                    if ip.startswith("127."):
+                        continue
+                    mac = ""
+                    if netifaces.AF_LINK in addrs:
+                        link_addrs = addrs[netifaces.AF_LINK]
+                        if link_addrs:
+                            mac = link_addrs[0].get("addr", "")
+                    self.interfaces.append({
+                        "name": iface_name,
+                        "ip": ip,
+                        "netmask": addr_info.get("netmask", "255.255.255.0"),
+                        "mac": mac,
+                        "type": self._classify(iface_name),
+                        "gateway": default_gw,
+                        "is_fiber": self._is_fiber(iface_name),
+                        "active": True,
+                    })
+        except Exception as e:
+            logger.debug(f"netifaces detection failed: {e}")
 
     def _detect_linux(self):
         try:

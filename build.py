@@ -58,12 +58,15 @@ def build_server():
         "engineio", "engineio.async_drivers.eventlet",
         "socketio", "dns", "dns.resolver", "config",
         "server", "server.bro_server", "server.signaling",
-        "network", "network.detector", "mesh", "mesh.mesh_node",
+        "network", "network.detector", "network.turn_server",
+        "network.discovery", "network.ws_mesh",
+        "mesh", "mesh.mesh_node",
         "database", "database.db",
         "utils", "utils.crypto", "utils.thumbnails", "utils.qr_generator",
         "utils.monitor", "utils.scheduler", "utils.compression", "utils.notifications",
         "cryptography", "PIL", "qrcode", "psutil", "apscheduler",
         "msgpack", "zstandard", "cachetools", "plyer",
+        "aiortc", "aioice", "zeroconf", "netifaces", "requests", "websockets",
     ]
     h_args = []
     for h in hidden:
