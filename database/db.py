@@ -9,6 +9,7 @@ import shutil
 import logging
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
+from cachetools import TTLCache
 
 logger = logging.getLogger("BRO.db")
 
@@ -33,6 +34,10 @@ class Database:
     def __init__(self, db_path):
         self.db_path = db_path
         self._local = threading.local()
+        # Caches: TTL in seconds, maxsize = max entries
+        self._user_cache = TTLCache(maxsize=200, ttl=60)        # user lookups: 60s
+        self._rooms_cache = TTLCache(maxsize=50, ttl=30)        # rooms list: 30s
+        self._room_members_cache = TTLCache(maxsize=100, ttl=30) # room members: 30s
         self._init_db()
 
     def _get_conn(self):
@@ -194,10 +199,16 @@ class Database:
         self.set_status(username, "offline")
 
     def get_user(self, username):
+        cached = self._user_cache.get(username)
+        if cached is not None:
+            return cached
         conn = self._get_conn()
         row = conn.execute("SELECT username, display_name, status, banned, role, public_key, last_seen, created_at FROM users WHERE username=?",
                            (username,)).fetchone()
-        return dict(row) if row else None
+        result = dict(row) if row else None
+        if result:
+            self._user_cache[username] = result
+        return result
 
     def get_all_users(self):
         conn = self._get_conn()
@@ -225,11 +236,13 @@ class Database:
         conn = self._get_conn()
         conn.execute("UPDATE users SET banned=1, status='offline' WHERE username=?", (username,))
         conn.commit()
+        self._user_cache.pop(username, None)
 
     def unban_user(self, username):
         conn = self._get_conn()
         conn.execute("UPDATE users SET banned=0 WHERE username=?", (username,))
         conn.commit()
+        self._user_cache.pop(username, None)
 
     def delete_user(self, username):
         conn = self._get_conn()
@@ -237,6 +250,9 @@ class Database:
         conn.execute("DELETE FROM room_members WHERE username=?", (username,))
         conn.execute("DELETE FROM users WHERE username=?", (username,))
         conn.commit()
+        self._user_cache.pop(username, None)
+        self._rooms_cache.clear()
+        self._room_members_cache.clear()
 
     def get_files_by_room(self, room_id):
         conn = self._get_conn()
@@ -262,6 +278,7 @@ class Database:
         conn = self._get_conn()
         conn.execute("UPDATE users SET role=? WHERE username=?", (role, username))
         conn.commit()
+        self._user_cache.pop(username, None)
         return True
 
     def has_permission(self, username, permission):
@@ -300,6 +317,7 @@ class Database:
                          (name, description, created_by))
             conn.commit()
             room_id = conn.execute("SELECT id FROM rooms WHERE name=?", (name,)).fetchone()["id"]
+            self._rooms_cache.clear()
             if created_by != "system":
                 self.join_room(room_id, created_by)
             return room_id
@@ -307,6 +325,9 @@ class Database:
             return None
 
     def get_rooms(self):
+        cached = self._rooms_cache.get("all_rooms")
+        if cached is not None:
+            return cached
         conn = self._get_conn()
         rows = conn.execute("SELECT id, name, description, created_by, created_at FROM rooms ORDER BY id").fetchall()
         result = []
@@ -315,6 +336,7 @@ class Database:
             d["member_count"] = conn.execute("SELECT COUNT(*) as c FROM room_members WHERE room_id=?",
                                              (d["id"],)).fetchone()["c"]
             result.append(d)
+        self._rooms_cache["all_rooms"] = result
         return result
 
     def get_room(self, room_id):
@@ -327,6 +349,8 @@ class Database:
         conn = self._get_conn()
         conn.execute("DELETE FROM rooms WHERE id=? AND name != ?", (room_id, "عامة"))
         conn.commit()
+        self._rooms_cache.clear()
+        self._room_members_cache.pop(f"members_{room_id}", None)
 
     def update_room(self, room_id, name=None, description=None):
         conn = self._get_conn()
@@ -342,6 +366,8 @@ class Database:
             conn.execute("INSERT OR IGNORE INTO room_members (room_id, username) VALUES (?, ?)",
                          (room_id, username))
             conn.commit()
+            self._room_members_cache.pop(f"members_{room_id}", None)
+            self._rooms_cache.clear()
             return True
         except Exception:
             return False
@@ -357,11 +383,19 @@ class Database:
         conn = self._get_conn()
         conn.execute("DELETE FROM room_members WHERE room_id=? AND username=?", (room_id, username))
         conn.commit()
+        self._room_members_cache.pop(f"members_{room_id}", None)
+        self._rooms_cache.clear()
 
     def get_room_members(self, room_id):
+        cache_key = f"members_{room_id}"
+        cached = self._room_members_cache.get(cache_key)
+        if cached is not None:
+            return cached
         conn = self._get_conn()
         rows = conn.execute("SELECT username FROM room_members WHERE room_id=?", (room_id,)).fetchall()
-        return [r["username"] for r in rows]
+        result = [r["username"] for r in rows]
+        self._room_members_cache[cache_key] = result
+        return result
 
     def get_user_rooms(self, username):
         conn = self._get_conn()
