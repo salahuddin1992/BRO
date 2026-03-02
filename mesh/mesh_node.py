@@ -8,9 +8,9 @@ import threading
 import time
 import logging
 from datetime import datetime
-from urllib.request import Request, urlopen
 
 import msgpack
+import requests
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -167,14 +167,12 @@ class MeshNode:
     def _sync_to_peer(self, peer, local_users):
         try:
             url = f"http://{peer['host']}:{peer['port']}/api/mesh/sync-users"
-            payload = json.dumps({
+            requests.post(url, json={
                 "server_id": self.server_id,
                 "host": self.host,
                 "port": self.port,
                 "users": local_users,
-            }).encode()
-            req = Request(url, data=payload, headers={"Content-Type": "application/json", "X-Mesh-Secret": config.SECRET_KEY})
-            urlopen(req, timeout=3)
+            }, headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=3)
         except Exception:
             pass
 
@@ -186,9 +184,8 @@ class MeshNode:
             return False
         try:
             url = f"http://{peer['host']}:{peer['port']}/api/mesh/forward"
-            payload = json.dumps({"event": event, "data": data}).encode()
-            req = Request(url, data=payload, headers={"Content-Type": "application/json", "X-Mesh-Secret": config.SECRET_KEY})
-            urlopen(req, timeout=5)
+            requests.post(url, json={"event": event, "data": data},
+                          headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=5)
             return True
         except Exception as e:
             logger.warning(f"Forward to {target_server_id} failed: {e}")
@@ -204,9 +201,8 @@ class MeshNode:
         for peer in peers:
             try:
                 url = f"http://{peer['host']}:{peer['port']}/api/mesh/broadcast"
-                payload = json.dumps({"event": event, "data": data}).encode()
-                req = Request(url, data=payload, headers={"Content-Type": "application/json", "X-Mesh-Secret": config.SECRET_KEY})
-                urlopen(req, timeout=3)
+                requests.post(url, json={"event": event, "data": data},
+                              headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=3)
             except Exception:
                 pass
 
@@ -256,8 +252,8 @@ class MeshNode:
         # Try HTTP discovery
         try:
             url = f"http://{host}:{port}/api/mesh/info"
-            resp = urlopen(Request(url, headers={"X-Mesh-Secret": config.SECRET_KEY}), timeout=3)
-            info = json.loads(resp.read().decode())
+            resp = requests.get(url, headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=3)
+            info = resp.json()
             sid = info["server_id"]
             with self._lock:
                 self.peers[sid] = {
