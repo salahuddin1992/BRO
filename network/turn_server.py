@@ -179,6 +179,7 @@ class LocalTurnServer:
         self.relay_ip = relay_ip  # IP to use for relay addresses
         self._running = False
         self._threads = []
+        self._udp_sock = None  # Main UDP socket for relay responses
 
         # Allocations: {(client_ip, client_port): Allocation}
         self._allocations = {}
@@ -260,6 +261,7 @@ class LocalTurnServer:
                 pass
             sock.settimeout(1.0)
             sock.bind((self.host, port))
+            self._udp_sock = sock  # Store for relay responses
         except OSError as e:
             logger.warning(f"STUN/TURN UDP bind failed on port {port}: {e}")
             return
@@ -695,11 +697,10 @@ class LocalTurnServer:
                 continue
 
     def _send_to_client(self, client_addr, data):
-        """Send data back to client through a temporary UDP socket."""
+        """Send data back to client through the main TURN UDP socket."""
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.sendto(data, client_addr)
-            s.close()
+            if self._udp_sock:
+                self._udp_sock.sendto(data, client_addr)
         except Exception:
             pass
 

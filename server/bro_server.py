@@ -142,6 +142,11 @@ class BROServer:
         self.typing_state = {}  # {sid: {target, username, timestamp}}
         self._MAX_MSG_LEN = 5000  # max message length in characters
 
+        # Chat message rate limiting: {sid: [timestamps]}
+        self._msg_rate = defaultdict(list)
+        self._MSG_RATE_MAX = 10   # max messages per window
+        self._MSG_RATE_WINDOW = 2  # 2-second window
+
         # Backup directory
         self.backup_dir = os.path.join(config.RUNTIME_PATH, "backups")
         os.makedirs(self.backup_dir, exist_ok=True)
@@ -201,6 +206,15 @@ class BROServer:
 
     def _record_attempt(self, ip):
         self._auth_attempts[ip].append(time.time())
+
+    def _check_msg_rate(self, sid):
+        """Rate-limit chat messages per session (prevent spam)."""
+        now = time.time()
+        self._msg_rate[sid] = [t for t in self._msg_rate[sid] if now - t < self._MSG_RATE_WINDOW]
+        if len(self._msg_rate[sid]) >= self._MSG_RATE_MAX:
+            return False
+        self._msg_rate[sid].append(now)
+        return True
 
     def _log(self, msg, level="info"):
         self.logs.append({"time": datetime.utcnow().isoformat(), "level": level, "message": msg})
@@ -1313,6 +1327,9 @@ class BROServer:
             client = self.clients.get(sid, {})
             sender = client.get("username")
             if not sender:
+                return
+            if not self._check_msg_rate(sid):
+                emit("chat_error", {"error": "أنت ترسل بسرعة كبيرة، انتظر قليلاً"})
                 return
             text = (data.get("text") or "").strip()
             if not text:
