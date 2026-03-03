@@ -28,11 +28,11 @@ class TestNetworkDetector(unittest.TestCase):
         self.assertEqual(self.detector._classify("eno1"), "Ethernet")
 
     def test_classify_fiber(self):
-        # _classify checks FIBER_KEYWORDS first, so all fiber interfaces return "Fiber"
-        self.assertEqual(self.detector._classify("gpon0"), "Fiber")
-        self.assertEqual(self.detector._classify("epon0"), "Fiber")
-        self.assertEqual(self.detector._classify("sfp0"), "Fiber")
-        self.assertEqual(self.detector._classify("ont0"), "Fiber")
+        # _classify checks TYPES prefix first (specific type), then FIBER_KEYWORDS (generic)
+        self.assertEqual(self.detector._classify("gpon0"), "Fiber/GPON")
+        self.assertEqual(self.detector._classify("epon0"), "Fiber/EPON")
+        self.assertEqual(self.detector._classify("sfp0"), "Fiber/SFP")
+        self.assertEqual(self.detector._classify("ont0"), "Fiber/ONT")
 
     def test_classify_vpn(self):
         self.assertEqual(self.detector._classify("tun0"), "VPN")

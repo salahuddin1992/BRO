@@ -44,11 +44,15 @@ def get_process_stats():
     """Get stats for the current server process."""
     proc = psutil.Process()
     with proc.oneshot():
+        try:
+            open_files = len(proc.open_files())
+        except (psutil.Error, OSError, IndexError):
+            open_files = 0
         return {
             "pid": proc.pid,
             "cpu_percent": proc.cpu_percent(),
             "memory_mb": round(proc.memory_info().rss / 1048576, 1),
             "threads": proc.num_threads(),
-            "open_files": len(proc.open_files()),
+            "open_files": open_files,
             "connections": len(proc.net_connections()),
         }
