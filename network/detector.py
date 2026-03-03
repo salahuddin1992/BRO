@@ -198,12 +198,13 @@ class NetworkDetector:
 
     def _classify(self, name):
         n = name.lower()
-        # Check fiber keywords first (Windows adapter names)
-        if any(kw in n for kw in self.FIBER_KEYWORDS):
-            return "Fiber"
+        # Check specific prefix types first (longest prefix wins)
         for prefix, itype in sorted(self.TYPES.items(), key=lambda x: -len(x[0])):
             if n.startswith(prefix):
                 return itype
+        # Fallback: check fiber keywords anywhere in name (Windows adapter names)
+        if any(kw in n for kw in self.FIBER_KEYWORDS):
+            return "Fiber"
         return "Unknown"
 
     def _is_fiber(self, name):
