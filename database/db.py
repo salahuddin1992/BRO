@@ -98,11 +98,29 @@ class Database:
                 name TEXT NOT NULL,
                 saved_as TEXT NOT NULL,
                 size INTEGER DEFAULT 0,
+                mime_type TEXT DEFAULT '',
                 uploaded_by TEXT,
                 room_id INTEGER,
+                encrypted INTEGER DEFAULT 0,
+                expires_at TEXT,
                 uploaded_at TEXT DEFAULT (datetime('now')),
                 FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
             );
+
+            CREATE TABLE IF NOT EXISTS user_quotas (
+                username TEXT PRIMARY KEY,
+                used_bytes INTEGER DEFAULT 0,
+                max_bytes INTEGER DEFAULT 524288000
+            );
+
+            CREATE TABLE IF NOT EXISTS offline_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target_user TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_offline_target ON offline_messages(target_user);
 
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
@@ -141,6 +159,9 @@ class Database:
             "ALTER TABLE messages ADD COLUMN reply_to INTEGER",
             "ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0",
             "ALTER TABLE messages ADD COLUMN encrypted INTEGER DEFAULT 0",
+            "ALTER TABLE files ADD COLUMN mime_type TEXT DEFAULT ''",
+            "ALTER TABLE files ADD COLUMN encrypted INTEGER DEFAULT 0",
+            "ALTER TABLE files ADD COLUMN expires_at TEXT",
         ]:
             try:
                 conn.execute(col_sql)
@@ -522,12 +543,14 @@ class Database:
 
     # ===================== Files =====================
 
-    def save_file(self, name, saved_as, size, uploaded_by, room_id=None):
+    def save_file(self, name, saved_as, size, uploaded_by, room_id=None, mime_type='', encrypted=False, expires_at=None):
         conn = self._get_conn()
         cur = conn.execute(
-            "INSERT INTO files (name, saved_as, size, uploaded_by, room_id, uploaded_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
-            (name, saved_as, size, uploaded_by, room_id))
+            "INSERT INTO files (name, saved_as, size, uploaded_by, room_id, mime_type, encrypted, expires_at, uploaded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+            (name, saved_as, size, uploaded_by, room_id, mime_type, 1 if encrypted else 0, expires_at))
         conn.commit()
+        # Update user quota
+        self._update_quota(uploaded_by, size)
         return cur.lastrowid
 
     def get_files(self, room_id=None, limit=100):
@@ -548,6 +571,116 @@ class Database:
         conn.execute("DELETE FROM files WHERE id=?", (file_id,))
         conn.commit()
         return row["saved_as"] if row else None
+
+    def search_files(self, query, uploaded_by=None, room_id=None, date_from=None, date_to=None, limit=50):
+        """Search files by name, uploader, room, or date range."""
+        conn = self._get_conn()
+        conditions = ["1=1"]
+        params = []
+        if query:
+            conditions.append("name LIKE ?")
+            params.append(f"%{query}%")
+        if uploaded_by:
+            conditions.append("uploaded_by = ?")
+            params.append(uploaded_by)
+        if room_id:
+            conditions.append("room_id = ?")
+            params.append(room_id)
+        if date_from:
+            conditions.append("uploaded_at >= ?")
+            params.append(date_from)
+        if date_to:
+            conditions.append("uploaded_at <= ?")
+            params.append(date_to)
+        where = " AND ".join(conditions)
+        params.append(limit)
+        rows = conn.execute(
+            f"SELECT id, name, saved_as, size, mime_type, uploaded_by, room_id, uploaded_at FROM files WHERE {where} ORDER BY id DESC LIMIT ?",
+            params).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_expired_files(self):
+        """Get files that have passed their expiration date."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT id, saved_as FROM files WHERE expires_at IS NOT NULL AND expires_at < datetime('now')"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def delete_expired_files(self):
+        """Delete expired file records and return their saved_as names."""
+        expired = self.get_expired_files()
+        if expired:
+            conn = self._get_conn()
+            ids = [f["id"] for f in expired]
+            placeholders = ",".join("?" for _ in ids)
+            conn.execute(f"DELETE FROM files WHERE id IN ({placeholders})", ids)
+            conn.commit()
+        return expired
+
+    # ===================== User Quotas =====================
+
+    def _update_quota(self, username, size_delta):
+        """Update user's storage quota usage."""
+        if not username:
+            return
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO user_quotas (username, used_bytes) VALUES (?, ?) "
+            "ON CONFLICT(username) DO UPDATE SET used_bytes = MAX(0, used_bytes + ?)",
+            (username, max(0, size_delta), size_delta))
+        conn.commit()
+
+    def get_user_quota(self, username):
+        """Get user's quota info: {used_bytes, max_bytes}."""
+        conn = self._get_conn()
+        row = conn.execute(
+            "SELECT used_bytes, max_bytes FROM user_quotas WHERE username = ?",
+            (username,)).fetchone()
+        if row:
+            return {"used_bytes": row["used_bytes"], "max_bytes": row["max_bytes"]}
+        return {"used_bytes": 0, "max_bytes": 524288000}  # 500MB default
+
+    def set_user_quota_limit(self, username, max_bytes):
+        """Set max storage quota for a user."""
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO user_quotas (username, max_bytes) VALUES (?, ?) "
+            "ON CONFLICT(username) DO UPDATE SET max_bytes = ?",
+            (username, max_bytes, max_bytes))
+        conn.commit()
+
+    def check_quota(self, username, file_size):
+        """Check if user has enough quota for a file. Returns True if ok."""
+        quota = self.get_user_quota(username)
+        return (quota["used_bytes"] + file_size) <= quota["max_bytes"]
+
+    # ===================== Offline Messages =====================
+
+    def save_offline_message(self, target_user, event_type, payload):
+        """Queue a message for an offline user."""
+        import json
+        conn = self._get_conn()
+        conn.execute(
+            "INSERT INTO offline_messages (target_user, event_type, payload) VALUES (?, ?, ?)",
+            (target_user, event_type, json.dumps(payload)))
+        conn.commit()
+
+    def get_offline_messages(self, username, limit=200):
+        """Retrieve and delete queued messages for a user."""
+        import json
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT id, event_type, payload, created_at FROM offline_messages WHERE target_user = ? ORDER BY id LIMIT ?",
+            (username, limit)).fetchall()
+        messages = [{"event_type": r["event_type"], "payload": json.loads(r["payload"]),
+                     "created_at": r["created_at"]} for r in rows]
+        if rows:
+            ids = [r["id"] for r in rows]
+            placeholders = ",".join("?" for _ in ids)
+            conn.execute(f"DELETE FROM offline_messages WHERE id IN ({placeholders})", ids)
+            conn.commit()
+        return messages
 
     # ===================== Recordings =====================
 

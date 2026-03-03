@@ -35,6 +35,13 @@ def init_scheduler(db, upload_folder, backup_dir):
         id="cleanup_files", replace_existing=True,
     )
 
+    # Cleanup expired files every hour
+    _scheduler.add_job(
+        _cleanup_expired_files, "interval", hours=1,
+        args=[db, upload_folder],
+        id="cleanup_expired", replace_existing=True,
+    )
+
     # Cleanup expired sessions every hour
     _scheduler.add_job(
         _cleanup_expired_sessions, "interval", hours=1,
@@ -83,6 +90,30 @@ def _cleanup_old_files(upload_folder):
                 pass
     if removed:
         logger.info(f"Cleanup: removed {removed} old files")
+
+
+def _cleanup_expired_files(db, upload_folder):
+    """Delete files that have passed their expiration date."""
+    try:
+        expired = db.delete_expired_files()
+        for f in expired:
+            fpath = os.path.join(upload_folder, f["saved_as"])
+            if os.path.isfile(fpath):
+                try:
+                    os.remove(fpath)
+                except OSError:
+                    pass
+            # Also remove compressed version
+            zpath = fpath + ".zst"
+            if os.path.isfile(zpath):
+                try:
+                    os.remove(zpath)
+                except OSError:
+                    pass
+        if expired:
+            logger.info(f"Expired files cleanup: removed {len(expired)} files")
+    except Exception as e:
+        logger.warning(f"Expired files cleanup error: {e}")
 
 
 def _cleanup_expired_sessions(db):

@@ -43,6 +43,7 @@ from utils.scheduler import init_scheduler, shutdown_scheduler
 from utils.compression import should_compress, compress_file
 from utils.notifications import (notify_server_started, notify_new_message,
                                  notify_incoming_call, notify_file_shared)
+from utils.crypto import encrypt_file as crypto_encrypt_file, decrypt_file as crypto_decrypt_file
 
 # python-magic: try import, fallback gracefully
 try:
@@ -603,7 +604,39 @@ class BROServer:
                 except Exception:
                     pass
 
-            self.db.save_file(original, name, size, uploaded_by, room_id)
+            # Check quota
+            if not self.db.check_quota(uploaded_by, size):
+                os.remove(save_path)
+                return jsonify({"error": "تجاوزت حد التخزين المسموح"}), 413
+            # Detect MIME type
+            mime_type = ''
+            if _magic_available:
+                try:
+                    mime_type = magic.from_file(save_path, mime=True) or ''
+                except Exception:
+                    pass
+            # Optional file encryption
+            encrypted = False
+            if config.FILE_ENCRYPTION_KEY and request.form.get("encrypt") == "1":
+                try:
+                    enc_path = save_path + ".enc"
+                    key = config.FILE_ENCRYPTION_KEY.encode()[:32].ljust(32, b'\0')
+                    crypto_encrypt_file(key, save_path, enc_path)
+                    os.replace(enc_path, save_path)
+                    encrypted = True
+                except Exception:
+                    pass
+            # TTL / expiration
+            expires_at = None
+            ttl_hours = request.form.get("ttl_hours", type=int)
+            if ttl_hours and ttl_hours > 0:
+                from datetime import timedelta
+                expires_at = (datetime.utcnow() + timedelta(hours=ttl_hours)).isoformat()
+            elif config.FILE_TTL_DAYS > 0:
+                from datetime import timedelta
+                expires_at = (datetime.utcnow() + timedelta(days=config.FILE_TTL_DAYS)).isoformat()
+            self.db.save_file(original, name, size, uploaded_by, room_id,
+                              mime_type=mime_type, encrypted=encrypted, expires_at=expires_at)
             info = {
                 "name": f.filename, "saved_as": name,
                 "size": size,
@@ -612,6 +645,7 @@ class BROServer:
                 "room_id": room_id,
                 "target_user": target_user,
                 "thumbnail": thumb,
+                "mime_type": mime_type,
             }
             self._log(f"File: {f.filename}")
             notify_file_shared(uploaded_by, f.filename)
@@ -718,6 +752,156 @@ class BROServer:
             if os.path.isfile(thumb_path):
                 return send_from_directory(self.thumb_dir, thumb_name)
             return jsonify({"error": "الصورة المصغرة غير موجودة"}), 404
+
+        # --- Media Preview (stream video/audio/PDF inline) ---
+        @self.app.route("/api/preview/<filename>")
+        def preview_file(filename):
+            if not session.get("admin"):
+                token = request.args.get("token", "")
+                user = self._get_token_user(token) if token else None
+                if not user:
+                    user = request.args.get("u", "")
+                    if not user or not any(c.get("username") == user for c in self.clients.values()):
+                        return jsonify({"error": "غير مصرح"}), 401
+            safe = secure_filename(filename)
+            if not safe or safe != filename:
+                return jsonify({"error": "اسم ملف غير صالح"}), 400
+            fpath = os.path.join(config.UPLOAD_FOLDER, safe)
+            if not os.path.isfile(fpath):
+                return jsonify({"error": "الملف غير موجود"}), 404
+            # Serve inline (not as attachment) for preview
+            from flask import send_file
+            import mimetypes
+            mime = mimetypes.guess_type(safe)[0] or 'application/octet-stream'
+            return send_file(fpath, mimetype=mime, download_name=safe)
+
+        # --- Chunked Upload ---
+        @self.app.route("/api/upload/chunk", methods=["POST"])
+        @self.limiter.limit("60 per minute")
+        def upload_chunk():
+            uploader = _verify_user(self)
+            if not uploader:
+                return jsonify({"error": "غير مصرح"}), 401
+            upload_id = request.form.get("upload_id")
+            chunk_index = request.form.get("chunk_index", type=int)
+            total_chunks = request.form.get("total_chunks", type=int)
+            filename = request.form.get("filename", "file")
+            total_size = request.form.get("total_size", 0, type=int)
+            if not upload_id or chunk_index is None or not total_chunks:
+                return jsonify({"error": "بيانات ناقصة"}), 400
+            # Check quota before accepting
+            if not self.db.check_quota(uploader, total_size):
+                return jsonify({"error": "تجاوزت حد التخزين المسموح"}), 413
+            chunk = request.files.get("chunk")
+            if not chunk:
+                return jsonify({"error": "لا يوجد جزء"}), 400
+            chunk_dir = os.path.join(config.CHUNK_UPLOAD_FOLDER, secure_filename(upload_id))
+            os.makedirs(chunk_dir, exist_ok=True)
+            chunk_path = os.path.join(chunk_dir, f"chunk_{chunk_index:05d}")
+            chunk.save(chunk_path)
+            # Check if all chunks received
+            received = len([f for f in os.listdir(chunk_dir) if f.startswith("chunk_")])
+            if received >= total_chunks:
+                # Assemble file
+                safe = secure_filename(filename) or "file"
+                ext = safe.rsplit('.', 1)[-1].lower() if '.' in safe else ''
+                if ext and ext not in ALLOWED_EXTENSIONS:
+                    import shutil
+                    shutil.rmtree(chunk_dir, ignore_errors=True)
+                    return jsonify({"error": f"نوع الملف غير مسموح: .{ext}"}), 400
+                name = f"{int(time.time())}_{safe}"
+                save_path = os.path.join(config.UPLOAD_FOLDER, name)
+                with open(save_path, 'wb') as out_f:
+                    for i in range(total_chunks):
+                        cp = os.path.join(chunk_dir, f"chunk_{i:05d}")
+                        if os.path.isfile(cp):
+                            with open(cp, 'rb') as cf:
+                                out_f.write(cf.read())
+                import shutil
+                shutil.rmtree(chunk_dir, ignore_errors=True)
+                size = os.path.getsize(save_path)
+                room_id = request.form.get("room_id", type=int)
+                target_user = request.form.get("target_user")
+                thumb = generate_thumbnail(config.UPLOAD_FOLDER, name)
+                if should_compress(name, size):
+                    try:
+                        compress_file(save_path, save_path + ".zst")
+                    except Exception:
+                        pass
+                # Detect MIME type
+                mime_type = ''
+                if _magic_available:
+                    try:
+                        mime_type = magic.from_file(save_path, mime=True) or ''
+                    except Exception:
+                        pass
+                # Optional file encryption
+                encrypted = False
+                if config.FILE_ENCRYPTION_KEY and request.form.get("encrypt") == "1":
+                    try:
+                        enc_path = save_path + ".enc"
+                        key = config.FILE_ENCRYPTION_KEY.encode()[:32].ljust(32, b'\0')
+                        crypto_encrypt_file(key, save_path, enc_path)
+                        os.replace(enc_path, save_path)
+                        encrypted = True
+                    except Exception:
+                        pass
+                # TTL / expiration
+                expires_at = None
+                ttl_hours = request.form.get("ttl_hours", type=int)
+                if ttl_hours and ttl_hours > 0:
+                    from datetime import timedelta
+                    expires_at = (datetime.utcnow() + timedelta(hours=ttl_hours)).isoformat()
+                elif config.FILE_TTL_DAYS > 0:
+                    from datetime import timedelta
+                    expires_at = (datetime.utcnow() + timedelta(days=config.FILE_TTL_DAYS)).isoformat()
+                self.db.save_file(filename, name, size, uploader, room_id,
+                                  mime_type=mime_type, encrypted=encrypted, expires_at=expires_at)
+                info = {
+                    "name": filename, "saved_as": name, "size": size,
+                    "uploaded_by": uploader, "uploaded_at": datetime.utcnow().isoformat(),
+                    "room_id": room_id, "target_user": target_user,
+                    "thumbnail": thumb, "mime_type": mime_type,
+                }
+                notify_file_shared(uploader, filename)
+                if room_id:
+                    members = self.db.get_room_members(room_id)
+                    for sid, cl in self.clients.items():
+                        if cl.get("username") in members:
+                            self.sio.emit("file_shared", info, room=sid)
+                elif target_user:
+                    for sid, cl in self.clients.items():
+                        if cl.get("username") in (target_user, uploader):
+                            self.sio.emit("file_shared", info, room=sid)
+                else:
+                    self.sio.emit("file_shared", info)
+                return jsonify({"status": "ok", "complete": True, "file": info})
+            return jsonify({"status": "ok", "complete": False, "received": received, "total": total_chunks})
+
+        # --- File Search ---
+        @self.app.route("/api/files/search")
+        def search_files():
+            query = request.args.get("q", "")
+            uploader = request.args.get("uploaded_by", "")
+            room_id = request.args.get("room_id", type=int)
+            date_from = request.args.get("date_from", "")
+            date_to = request.args.get("date_to", "")
+            results = self.db.search_files(query, uploaded_by=uploader or None,
+                                           room_id=room_id, date_from=date_from or None,
+                                           date_to=date_to or None)
+            return jsonify({"files": results})
+
+        # --- User Quota ---
+        @self.app.route("/api/quota")
+        def get_quota():
+            token = request.args.get("token", "")
+            user = self._get_token_user(token) if token else None
+            if not user:
+                user = request.args.get("u", "")
+            if not user:
+                return jsonify({"error": "غير مصرح"}), 401
+            quota = self.db.get_user_quota(user)
+            return jsonify({"quota": quota})
 
         # --- Mesh Inter-server API ---
         def _check_mesh_secret():
@@ -887,6 +1071,8 @@ class BROServer:
                 role = self.db.get_user_role(username)
                 emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token, "role": role})
                 self._broadcast_users()
+                # Deliver offline messages
+                self._deliver_offline_messages(sid, username)
             else:
                 self._log(f"Failed login: {username} from {ip}", "warning")
                 emit("auth_result", {"ok": False, "error": "اسم المستخدم أو كلمة المرور خطأ"})
@@ -908,6 +1094,8 @@ class BROServer:
                 role = self.db.get_user_role(username)
                 emit("auth_result", {"ok": True, "username": username, "rooms": rooms, "token": token, "role": role})
                 self._broadcast_users()
+                # Deliver offline messages
+                self._deliver_offline_messages(sid, username)
             else:
                 emit("auth_result", {"ok": False, "error": "الجلسة انتهت، سجل دخول مرة ثانية", "token_expired": True})
 
@@ -1092,11 +1280,17 @@ class BROServer:
                     msg["reply_info"] = {"sender": ref["sender"], "text": ref["text"][:80]}
 
             if target_user:
+                delivered = False
                 for csid, cl in self.clients.items():
                     uname = cl.get("username")
                     if uname == target_user or (uname == sender and csid != sid):
                         self.sio.emit("chat_message", msg, room=csid)
+                        if uname == target_user:
+                            delivered = True
                 emit("chat_message", msg)
+                # Queue for offline delivery if target not online
+                if not delivered and not self._is_user_online(target_user):
+                    self.db.save_offline_message(target_user, "chat_message", msg)
             elif room_id:
                 members = self.db.get_room_members(room_id)
                 for csid, cl in self.clients.items():
@@ -1119,6 +1313,18 @@ class BROServer:
                 else:
                     self.db.delete_message(msg_id, username)
                 self.sio.emit("message_deleted", {"id": msg_id})
+
+        @self.sio.on("search_files")
+        def on_search_files(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
+            query = (data.get("query") or "").strip()
+            room_id = data.get("room_id")
+            results = self.db.search_files(query, room_id=room_id)
+            emit("file_search_results", {"query": query, "files": results})
 
         @self.sio.on("search_messages")
         def on_search(data):
@@ -1228,6 +1434,102 @@ class BROServer:
                     "sender": request.sid, "target": target,
                 }, room=target)
 
+        # --- Group Call Signaling ---
+        @self.sio.on("group_call_start")
+        def on_group_call_start(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            room_id = data.get("room_id")
+            call_type = data.get("call_type", "audio")
+            if not username or not room_id:
+                return
+            members = self.db.get_room_members(room_id)
+            if username not in members:
+                return
+            room = self.db.get_room(room_id)
+            # Register in signaling
+            self.signaling.join_room(room_id, username, sid)
+            # Notify all room members
+            for csid, cl in self.clients.items():
+                if cl.get("username") in members and csid != sid:
+                    self.sio.emit("group_call_invite", {
+                        "room_id": room_id,
+                        "room_name": room["name"] if room else str(room_id),
+                        "initiator": username,
+                        "call_type": call_type,
+                    }, room=csid)
+
+        @self.sio.on("group_call_join")
+        def on_group_call_join(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            room_id = data.get("room_id")
+            if not username or not room_id:
+                return
+            self.signaling.join_room(room_id, username, sid)
+            # Get existing participants
+            participants = self.signaling.get_room_users(room_id)
+            # Notify user of existing participants
+            emit("group_call_participants", {
+                "room_id": room_id,
+                "participants": [p for p in participants if p["sid"] != sid],
+            })
+            # Notify others that a new user joined
+            for p in participants:
+                if p["sid"] != sid:
+                    self.sio.emit("group_call_peer_joined", {
+                        "room_id": room_id,
+                        "sid": sid,
+                        "username": username,
+                    }, room=p["sid"])
+
+        @self.sio.on("group_call_leave")
+        def on_group_call_leave(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            room_id = data.get("room_id")
+            if not room_id:
+                return
+            participants = self.signaling.get_room_users(room_id)
+            self.signaling.leave_room(room_id, sid)
+            for p in participants:
+                if p["sid"] != sid:
+                    self.sio.emit("group_call_peer_left", {
+                        "room_id": room_id,
+                        "sid": sid,
+                        "username": username,
+                    }, room=p["sid"])
+
+        @self.sio.on("group_call_offer")
+        def on_group_offer(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("group_call_offer", {
+                    "sdp": data["sdp"], "type": data["type"],
+                    "sender": request.sid, "room_id": data.get("room_id"),
+                }, room=target)
+
+        @self.sio.on("group_call_answer")
+        def on_group_answer(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("group_call_answer", {
+                    "sdp": data["sdp"], "type": data["type"],
+                    "sender": request.sid, "room_id": data.get("room_id"),
+                }, room=target)
+
+        @self.sio.on("group_call_ice")
+        def on_group_ice(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("group_call_ice", {
+                    "candidate": data.get("candidate"),
+                    "sender": request.sid, "room_id": data.get("room_id"),
+                }, room=target)
+
         # --- WebRTC signaling ---
         @self.sio.on("call_request")
         def on_call_req(data):
@@ -1282,6 +1584,19 @@ class BROServer:
                 "candidate": data.get("candidate"),
                 "sender": request.sid, "target": data["target"],
             }, data["target"])
+
+    def _deliver_offline_messages(self, sid, username):
+        """Deliver queued offline messages to a user who just came online."""
+        try:
+            messages = self.db.get_offline_messages(username)
+            for msg in messages:
+                self.sio.emit(msg["event_type"], msg["payload"], room=sid)
+        except Exception as e:
+            logger.warning(f"Offline message delivery error: {e}")
+
+    def _is_user_online(self, username):
+        """Check if a user is currently connected."""
+        return any(c.get("username") == username for c in self.clients.values())
 
     def _route_event(self, event, data, target_sid):
         if target_sid in self.clients:

@@ -1,6 +1,6 @@
 /**
  * Helen WiFi - Electron Main Process
- * Native desktop window + System Tray + Notifications
+ * Native desktop window + System Tray + Notifications + Auto-Update + Deep Linking
  */
 const { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
@@ -12,12 +12,88 @@ const fs = require('fs');
 const APP_NAME = 'Helen WiFi';
 const SERVER_PORT = 8400;
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
+const PROTOCOL_NAME = 'bro';
 
 let mainWindow = null;
 let tray = null;
 let serverProcess = null;
 let isQuitting = false;
 let serverReady = false;
+let autoUpdater = null;
+
+// ========== Deep Linking Protocol ==========
+if (process.defaultApp) {
+    if (process.argv.length >= 2) {
+        app.setAsDefaultProtocolClient(PROTOCOL_NAME, process.execPath, [path.resolve(process.argv[1])]);
+    }
+} else {
+    app.setAsDefaultProtocolClient(PROTOCOL_NAME);
+}
+
+// ========== Auto-Updater ==========
+function initAutoUpdater() {
+    try {
+        const { autoUpdater: electronAutoUpdater } = require('electron-updater');
+        autoUpdater = electronAutoUpdater;
+        autoUpdater.autoDownload = false;
+        autoUpdater.autoInstallOnAppQuit = true;
+
+        autoUpdater.on('update-available', (info) => {
+            showNotification(APP_NAME, `تحديث جديد متوفر: ${info.version}`);
+            if (mainWindow) {
+                mainWindow.webContents.send('update-available', info);
+            }
+            dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'تحديث جديد',
+                message: `الإصدار ${info.version} متوفر. هل تريد تنزيله؟`,
+                buttons: ['تنزيل', 'لاحقاً'],
+                defaultId: 0,
+            }).then(result => {
+                if (result.response === 0) {
+                    autoUpdater.downloadUpdate();
+                }
+            });
+        });
+
+        autoUpdater.on('update-downloaded', () => {
+            dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'التحديث جاهز',
+                message: 'تم تنزيل التحديث. سيتم تثبيته عند إعادة التشغيل.',
+                buttons: ['إعادة التشغيل الآن', 'لاحقاً'],
+                defaultId: 0,
+            }).then(result => {
+                if (result.response === 0) {
+                    autoUpdater.quitAndInstall();
+                }
+            });
+        });
+
+        autoUpdater.on('error', (err) => {
+            console.log('Auto-updater error:', err.message);
+        });
+
+        // Check for updates after startup
+        setTimeout(() => {
+            autoUpdater.checkForUpdates().catch(() => {});
+        }, 5000);
+    } catch (e) {
+        console.log('Auto-updater not available (dev mode):', e.message);
+    }
+}
+
+// ========== Auto-Start ==========
+function setAutoStart(enable) {
+    app.setLoginItemSettings({
+        openAtLogin: enable,
+        openAsHidden: true,
+        path: process.execPath,
+        args: ['--hidden'],
+    });
+    settings.autoStart = enable;
+    saveSettings();
+}
 
 // ========== Settings Store ==========
 let settings = {
@@ -287,6 +363,14 @@ function createTray() {
                 saveSettings();
             },
         },
+        {
+            label: 'بدء تشغيل مع النظام',
+            type: 'checkbox',
+            checked: settings.autoStart,
+            click: (item) => {
+                setAutoStart(item.checked);
+            },
+        },
         { type: 'separator' },
         {
             label: 'إعادة تشغيل السيرفر',
@@ -390,6 +474,19 @@ function setupIPC() {
             app.dock.setBadge(count > 0 ? String(count) : '');
         }
     });
+
+    ipcMain.handle('set-auto-start', (event, enable) => {
+        setAutoStart(enable);
+        return true;
+    });
+
+    ipcMain.handle('check-for-updates', () => {
+        if (autoUpdater) {
+            autoUpdater.checkForUpdates().catch(() => {});
+            return true;
+        }
+        return false;
+    });
 }
 
 // ========== Icons ==========
@@ -483,9 +580,31 @@ p { color: rgba(255,255,255,0.5); font-size: 0.9em; margin-bottom: 30px; }
 }
 
 // ========== App Lifecycle ==========
+// Handle deep link on macOS
+app.on('open-url', (event, url) => {
+    event.preventDefault();
+    handleDeepLink(url);
+});
+
+function handleDeepLink(url) {
+    // Parse bro:// URLs: bro://room/roomname, bro://user/username, bro://call/username
+    if (!url || !url.startsWith(PROTOCOL_NAME + '://')) return;
+    const path = url.replace(PROTOCOL_NAME + '://', '');
+    const [action, target] = path.split('/');
+    if (mainWindow) {
+        mainWindow.show();
+        mainWindow.focus();
+        mainWindow.webContents.send('deep-link', { action, target });
+    }
+}
+
 app.whenReady().then(async () => {
     loadSettings();
     setupIPC();
+    // Apply auto-start setting
+    if (settings.autoStart) {
+        setAutoStart(true);
+    }
 
     const loadingWin = createLoadingWindow();
 
@@ -503,6 +622,18 @@ app.whenReady().then(async () => {
         loadingWin.close();
         createWindow();
         createTray();
+        initAutoUpdater();
+
+        // Handle deep link from command line args (Windows/Linux)
+        const deepLinkArg = process.argv.find(a => a.startsWith(PROTOCOL_NAME + '://'));
+        if (deepLinkArg) {
+            setTimeout(() => handleDeepLink(deepLinkArg), 1000);
+        }
+
+        // Check if started with --hidden flag (auto-start)
+        if (process.argv.includes('--hidden') || settings.startMinimized) {
+            if (mainWindow) mainWindow.hide();
+        }
 
     } catch (error) {
         console.error('Failed to start:', error);
@@ -545,11 +676,16 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
     app.quit();
 } else {
-    app.on('second-instance', () => {
+    app.on('second-instance', (event, commandLine) => {
         if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
             mainWindow.show();
             mainWindow.focus();
+            // Handle deep link from second instance
+            const deepLink = commandLine.find(arg => arg.startsWith(PROTOCOL_NAME + '://'));
+            if (deepLink) {
+                handleDeepLink(deepLink);
+            }
         }
     });
 }
