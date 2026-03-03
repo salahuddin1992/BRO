@@ -2,12 +2,14 @@
 Helen WiFi - WebSocket Mesh Communication
 Persistent WebSocket connections between mesh nodes for real-time sync.
 Replaces HTTP polling with bidirectional WebSocket channels.
+Smart reconnection with exponential backoff + optional zlib compression.
 """
 import asyncio
 import json
 import logging
 import threading
 import time
+import zlib
 
 import websockets
 
@@ -31,6 +33,11 @@ class WebSocketMeshBridge:
         self._on_message = None
         self._on_peer_connected = None
         self._on_peer_disconnected = None
+        # Smart reconnection
+        self._reconnect_peers = {}  # {(host, ws_port): {attempts, next_retry, peer_id}}
+        self._max_reconnect_attempts = 10
+        # Compression
+        self._compress = True
 
     def start(self, on_message=None, on_peer_connected=None, on_peer_disconnected=None):
         """Start WebSocket mesh server in a background thread."""
@@ -54,6 +61,8 @@ class WebSocketMeshBridge:
         asyncio.set_event_loop(self._loop)
         try:
             self._loop.run_until_complete(self._start_server())
+            # Start reconnection monitor
+            self._loop.create_task(self._reconnect_monitor())
             self._loop.run_forever()
         except Exception as e:
             logger.warning(f"WebSocket mesh loop error: {e}")
@@ -69,10 +78,51 @@ class WebSocketMeshBridge:
                 self.ws_port,
                 ping_interval=20,
                 ping_timeout=10,
+                compression="deflate",
             )
             logger.info(f"WebSocket mesh server listening on :{self.ws_port}")
         except OSError as e:
             logger.warning(f"WebSocket mesh bind failed on port {self.ws_port}: {e}")
+
+    async def _reconnect_monitor(self):
+        """Periodically attempt to reconnect to lost peers with exponential backoff."""
+        while self._running:
+            await asyncio.sleep(5)
+            now = time.time()
+            for key, info in list(self._reconnect_peers.items()):
+                if info["attempts"] >= self._max_reconnect_attempts:
+                    # Give up after max attempts
+                    self._reconnect_peers.pop(key, None)
+                    continue
+                if now < info.get("next_retry", 0):
+                    continue
+                # Check if already connected
+                peer_id = info.get("peer_id")
+                if peer_id and peer_id in self._connections:
+                    self._reconnect_peers.pop(key, None)
+                    continue
+                host, ws_port = key
+                info["attempts"] += 1
+                # Exponential backoff: 2^attempts seconds, max 120s
+                delay = min(2 ** info["attempts"], 120)
+                info["next_retry"] = now + delay
+                logger.debug(f"Reconnect attempt {info['attempts']} to {host}:{ws_port}")
+                try:
+                    await self._connect(host, ws_port)
+                    # Success - remove from reconnect list
+                    self._reconnect_peers.pop(key, None)
+                except Exception:
+                    pass
+
+    def _schedule_reconnect(self, host, ws_port, peer_id=None):
+        """Schedule a peer for reconnection."""
+        key = (host, ws_port)
+        if key not in self._reconnect_peers:
+            self._reconnect_peers[key] = {
+                "attempts": 0,
+                "next_retry": time.time() + 2,
+                "peer_id": peer_id,
+            }
 
     async def _handle_connection(self, websocket):
         """Handle an incoming WebSocket connection from a peer."""
@@ -106,11 +156,17 @@ class WebSocketMeshBridge:
             # Listen for messages
             async for message in websocket:
                 try:
+                    # Try decompressing first
+                    if isinstance(message, bytes):
+                        try:
+                            message = zlib.decompress(message).decode('utf-8')
+                        except zlib.error:
+                            message = message.decode('utf-8')
                     data = json.loads(message)
                     data["_from_peer"] = peer_id
                     if self._on_message:
                         self._on_message(data)
-                except json.JSONDecodeError:
+                except (json.JSONDecodeError, UnicodeDecodeError):
                     pass
 
         except websockets.ConnectionClosed:
@@ -143,6 +199,7 @@ class WebSocketMeshBridge:
                 uri,
                 ping_interval=20,
                 ping_timeout=10,
+                compression="deflate",
             )
             # Authenticate
             await websocket.send(json.dumps({
@@ -166,11 +223,16 @@ class WebSocketMeshBridge:
                 try:
                     async for message in websocket:
                         try:
+                            if isinstance(message, bytes):
+                                try:
+                                    message = zlib.decompress(message).decode('utf-8')
+                                except zlib.error:
+                                    message = message.decode('utf-8')
                             data = json.loads(message)
                             data["_from_peer"] = peer_id
                             if self._on_message:
                                 self._on_message(data)
-                        except json.JSONDecodeError:
+                        except (json.JSONDecodeError, UnicodeDecodeError):
                             pass
                 except websockets.ConnectionClosed:
                     pass
@@ -178,9 +240,15 @@ class WebSocketMeshBridge:
                     self._connections.pop(peer_id, None)
                     if self._on_peer_disconnected:
                         self._on_peer_disconnected(peer_id)
+                    # Schedule reconnection
+                    if self._running:
+                        self._schedule_reconnect(host, ws_port, peer_id)
 
         except Exception as e:
             logger.debug(f"WS mesh connect to {host}:{ws_port} failed: {e}")
+            # Schedule reconnection on failure
+            if self._running:
+                self._schedule_reconnect(host, ws_port)
 
     def send_to_peer(self, peer_id, data):
         """Send a message to a specific peer."""
@@ -198,9 +266,16 @@ class WebSocketMeshBridge:
             self.send_to_peer(peer_id, data)
 
     async def _send(self, websocket, data):
-        """Send JSON data through a WebSocket connection."""
+        """Send JSON data through a WebSocket connection, optionally compressed."""
         try:
-            await websocket.send(json.dumps(data))
+            payload = json.dumps(data)
+            # Compress large messages
+            if self._compress and len(payload) > 512:
+                compressed = zlib.compress(payload.encode('utf-8'))
+                if len(compressed) < len(payload):
+                    await websocket.send(compressed)
+                    return
+            await websocket.send(payload)
         except websockets.ConnectionClosed:
             pass
         except Exception as e:
@@ -220,4 +295,6 @@ class WebSocketMeshBridge:
             "ws_port": self.ws_port,
             "connected_peers": len(self._connections),
             "peer_ids": list(self._connections.keys()),
+            "pending_reconnects": len(self._reconnect_peers),
+            "compression": self._compress,
         }

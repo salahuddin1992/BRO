@@ -16,6 +16,12 @@
   "build": {
     "appId": "com.helenwifi.desktop",
     "productName": "Helen WiFi",
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://releases.helenwifi.local/updates/"
+      }
+    ],
     "directories": {
       "output": "../dist-electron"
     },
@@ -59,7 +65,9 @@
       "category": "public.app-category.social-networking"
     }
   },
-  "dependencies": {},
+  "dependencies": {
+    "electron-updater": "^6.1.0"
+  },
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^24.9.0"

@@ -126,6 +126,22 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 .sys { text-align:center; color:var(--dim); font-size:.78em; padding:6px; }
 .file-msg { background:rgba(0,212,255,0.08); border:1px solid rgba(0,212,255,0.15); }
 .file-msg a { color:var(--accent); text-decoration:none; }
+.media-preview { margin-top:6px; border-radius:8px; overflow:hidden; max-width:320px; }
+.media-preview video, .media-preview audio { width:100%; display:block; }
+.media-preview iframe { width:100%; height:300px; border:none; border-radius:8px; }
+.file-search-bar { display:none; padding:6px 14px; border-top:1px solid var(--border); gap:6px; align-items:center; }
+.file-search-bar.on { display:flex; }
+.file-search-bar input { flex:1; padding:5px 10px; background:rgba(255,255,255,0.06); border:1px solid var(--border);
+                         border-radius:12px; color:#fff; font-size:.76em; outline:none; }
+.quota-bar { padding:3px 14px; font-size:.66em; color:var(--dim); }
+.quota-fill { height:3px; background:rgba(255,255,255,0.06); border-radius:2px; overflow:hidden; margin-top:2px; }
+.quota-fill-inner { height:100%; background:linear-gradient(90deg,#00d4ff,#0066ff); transition:width .3s; }
+.group-call-banner { display:none; padding:8px 18px; background:rgba(0,230,118,0.08); border-bottom:1px solid var(--green);
+                     font-size:.82em; color:var(--green); align-items:center; gap:8px; }
+.group-call-banner.on { display:flex; }
+.group-call-banner button { padding:4px 12px; border:none; border-radius:8px; cursor:pointer; font-size:.78em; color:#fff; }
+.group-call-banner .join-btn { background:var(--green); }
+.group-call-banner .leave-btn { background:var(--red); }
 
 /* Message actions */
 .msg-actions { display:none; position:absolute; top:2px; gap:4px; }
@@ -448,6 +464,7 @@ body.font-large { font-size:17px; }
                 <button class="cbtn voice" onclick="startCall('audio')" title="صوت">&#128222;</button>
                 <button class="cbtn video" onclick="startCall('video')" title="فيديو">&#127909;</button>
                 <button class="cbtn screen" id="screenBtn" onclick="toggleScreenShare()" title="مشاركة الشاشة">&#128187;</button>
+                <button class="cbtn" id="groupCallBtn" onclick="startGroupCall()" title="مكالمة جماعية" style="font-size:.8em;">&#128101;</button>
                 <button class="cbtn hangup" id="hangupBtn" onclick="endCall()">&#10005;</button>
                 <span class="rec-dot" id="recDot"></span>
             </div>
@@ -476,6 +493,12 @@ body.font-large { font-size:17px; }
             </div>
         </div>
 
+        <!-- Group Call Banner -->
+        <div class="group-call-banner" id="groupCallBanner">
+            <span id="groupCallText">مكالمة جماعية نشطة</span>
+            <button class="join-btn" id="groupCallJoinBtn" onclick="joinGroupCall()">انضمام</button>
+            <button class="leave-btn" id="groupCallLeaveBtn" onclick="leaveGroupCall()" style="display:none">مغادرة</button>
+        </div>
         <div class="chat">
             <div class="msgs" id="msgs"></div>
             <div class="typing-bar" id="typingBar"></div>
@@ -510,7 +533,17 @@ body.font-large { font-size:17px; }
             <div class="irow"><span class="l" data-i18n="messages_count">رسائل</span><span class="v" id="iMsgs">0</span></div>
             <div class="irow"><span class="l" data-i18n="files_count">ملفات</span><span class="v" id="iFiles">0</span></div>
         </div>
+        <div class="quota-bar" id="quotaBar">
+            <span>التخزين: <span id="quotaUsed">0</span> / <span id="quotaMax">500 MB</span></span>
+            <div class="quota-fill"><div class="quota-fill-inner" id="quotaFill" style="width:0%"></div></div>
+        </div>
         <div class="sec-title" style="padding:10px 0 6px;" data-i18n="shared_files">ملفات مشتركة</div>
+        <div class="file-search-bar" id="fileSearchBar">
+            <input id="fileSearchInput" placeholder="بحث في الملفات..." onkeydown="if(event.key==='Enter')doFileSearch()">
+            <button onclick="doFileSearch()">&#128269;</button>
+            <button onclick="closeFileSearch()">&#10005;</button>
+        </div>
+        <button onclick="toggleFileSearch()" style="width:100%;padding:4px;background:none;border:1px solid var(--border);color:var(--dim);border-radius:6px;cursor:pointer;font-size:.72em;margin-bottom:6px;">&#128269; بحث في الملفات</button>
         <div id="sharedFiles"></div>
     </div>
 </div>
@@ -1817,6 +1850,363 @@ showNotif = function(title, body){
     origShowNotif(title, body);
     if(window.helenDesktop) window.helenDesktop.flashFrame();
 };
+
+// ============================================================
+// MEDIA PREVIEW IN CHAT
+// ============================================================
+const VIDEO_EXTS = ['mp4','webm','mov','avi','mkv'];
+const AUDIO_EXTS = ['mp3','wav','ogg'];
+const PDF_EXTS = ['pdf'];
+
+function addMediaPreview(parentEl, filename, savedAs){
+    let ext = (filename.match(/\.(\w+)$/)||[])[1];
+    if(!ext) return;
+    ext = ext.toLowerCase();
+    let url = '/api/preview/'+encodeURIComponent(savedAs)+'?u='+encodeURIComponent(me);
+    let container = document.createElement('div');
+    container.className = 'media-preview';
+    if(VIDEO_EXTS.includes(ext)){
+        let vid = document.createElement('video');
+        vid.controls = true;
+        vid.preload = 'metadata';
+        vid.src = url;
+        container.appendChild(vid);
+        parentEl.appendChild(container);
+    } else if(AUDIO_EXTS.includes(ext)){
+        let aud = document.createElement('audio');
+        aud.controls = true;
+        aud.preload = 'metadata';
+        aud.src = url;
+        container.appendChild(aud);
+        parentEl.appendChild(container);
+    } else if(PDF_EXTS.includes(ext)){
+        let iframe = document.createElement('iframe');
+        iframe.src = url;
+        iframe.title = filename;
+        container.appendChild(iframe);
+        parentEl.appendChild(container);
+    }
+}
+
+// Override fileMsg to include media preview
+let origFileMsg = fileMsg;
+fileMsg = function(data){
+    let c = document.getElementById('msgs');
+    let d = document.createElement('div');
+    d.className='msg file-msg';
+    let who = document.createElement('div');
+    who.className = 'who';
+    who.textContent = data.uploaded_by + ' ' + t('shared_file');
+    d.appendChild(who);
+    let a = document.createElement('a');
+    a.href = '/api/download/'+encodeURIComponent(data.saved_as)+'?u='+encodeURIComponent(me);
+    a.target = '_blank';
+    a.innerHTML = '&#128193; ';
+    a.appendChild(document.createTextNode(data.name + ' (' + fmtSize(data.size) + ')'));
+    d.appendChild(a);
+    // Image preview
+    let ext = (data.name.match(/\.(\w+)$/)||[])[1];
+    if(ext && IMAGE_EXTS.includes(ext.toLowerCase())){
+        let img = document.createElement('img');
+        img.className = 'msg-img';
+        img.src = '/api/download/'+encodeURIComponent(data.saved_as)+'?u='+encodeURIComponent(me);
+        img.addEventListener('click', ()=>{
+            document.getElementById('lightboxImg').src = img.src;
+            document.getElementById('lightbox').classList.add('on');
+        });
+        d.appendChild(img);
+    }
+    // Video/Audio/PDF preview
+    addMediaPreview(d, data.name, data.saved_as);
+    c.appendChild(d);
+    c.scrollTop = c.scrollHeight;
+};
+
+// ============================================================
+// CHUNKED UPLOAD (for large files > 5MB)
+// ============================================================
+const CHUNK_SIZE = 2 * 1024 * 1024; // 2MB per chunk
+
+function uploadFileChunked(file){
+    if(file.size <= CHUNK_SIZE * 2){
+        // Small file - use normal upload
+        uploadFile(file);
+        return;
+    }
+    let uploadId = Date.now() + '_' + Math.random().toString(36).substr(2,6);
+    let totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+    let bar = document.getElementById('uploadBar');
+    let fill = document.getElementById('pFill');
+    let nameEl = document.getElementById('pName');
+    let pct = document.getElementById('pPct');
+    bar.classList.add('on');
+    nameEl.textContent = file.name + ' (مجزأ)';
+    let sentChunks = 0;
+
+    function sendChunk(index){
+        if(index >= totalChunks){
+            bar.classList.remove('on');
+            return;
+        }
+        let start = index * CHUNK_SIZE;
+        let end = Math.min(start + CHUNK_SIZE, file.size);
+        let chunk = file.slice(start, end);
+        let form = new FormData();
+        form.append('chunk', chunk);
+        form.append('upload_id', uploadId);
+        form.append('chunk_index', index);
+        form.append('total_chunks', totalChunks);
+        form.append('filename', file.name);
+        form.append('total_size', file.size);
+        form.append('username', me);
+        if(selRoom) form.append('room_id', selRoom);
+        else if(selUserName) form.append('target_user', selUserName);
+        let xhr = new XMLHttpRequest();
+        xhr.open('POST','/api/upload/chunk');
+        xhr.onload = ()=>{
+            sentChunks++;
+            let p = Math.round(sentChunks/totalChunks*100);
+            fill.style.width=p+'%';
+            pct.textContent=p+'%';
+            nameEl.textContent=file.name+' ('+fmtSize(end)+'/'+fmtSize(file.size)+')';
+            try {
+                let res = JSON.parse(xhr.responseText);
+                if(res.error){
+                    bar.classList.remove('on');
+                    sysMsg(res.error);
+                    return;
+                }
+            } catch(e){}
+            sendChunk(index + 1);
+        };
+        xhr.onerror = ()=>{
+            bar.classList.remove('on');
+            sysMsg(t('file_upload_failed'));
+        };
+        xhr.send(form);
+    }
+    sendChunk(0);
+}
+
+// Override upload to use chunked for large files
+let origUploadFile = uploadFile;
+uploadFile = function(f){
+    if(f.size > CHUNK_SIZE * 2){
+        uploadFileChunked(f);
+    } else {
+        origUploadFile(f);
+    }
+};
+
+// ============================================================
+// FILE SEARCH
+// ============================================================
+function toggleFileSearch(){
+    let bar = document.getElementById('fileSearchBar');
+    bar.classList.toggle('on');
+    if(bar.classList.contains('on')) document.getElementById('fileSearchInput').focus();
+}
+function closeFileSearch(){
+    document.getElementById('fileSearchBar').classList.remove('on');
+    document.getElementById('fileSearchInput').value='';
+}
+function doFileSearch(){
+    let q = document.getElementById('fileSearchInput').value.trim();
+    if(!q || q.length<2) return;
+    socket.emit('search_files', {query:q, room_id:selRoom});
+}
+
+// ============================================================
+// QUOTA DISPLAY
+// ============================================================
+function updateQuotaDisplay(){
+    fetch('/api/quota?u='+encodeURIComponent(me))
+        .then(r=>r.json())
+        .then(d=>{
+            if(d.quota){
+                let used = d.quota.used_bytes||0;
+                let max = d.quota.max_bytes||524288000;
+                let pct = Math.min(100, Math.round(used/max*100));
+                document.getElementById('quotaUsed').textContent = fmtSize(used);
+                document.getElementById('quotaMax').textContent = fmtSize(max);
+                document.getElementById('quotaFill').style.width = pct+'%';
+                if(pct > 90) document.getElementById('quotaFill').style.background = 'var(--red)';
+            }
+        }).catch(()=>{});
+}
+
+// ============================================================
+// GROUP CALLS (multi-peer WebRTC)
+// ============================================================
+let groupCallRoom = null;
+let groupPCs = {}; // {sid: RTCPeerConnection}
+let groupStreams = {}; // {sid: MediaStream}
+let inGroupCall = false;
+
+function startGroupCall(){
+    if(!selRoom){ sysMsg(t('select_room')||'اختر غرفة أولاً'); return; }
+    let callType = 'audio'; // default to audio for group
+    socket.emit('group_call_start', {room_id:selRoom, call_type:callType});
+    joinGroupCall();
+}
+
+async function joinGroupCall(){
+    if(!selRoom) return;
+    groupCallRoom = selRoom;
+    inGroupCall = true;
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+            audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true},
+            video:false
+        });
+    } catch(e){ sysMsg((t('device_error')||'خطأ بالجهاز: ')+e.message); return; }
+    document.getElementById('localVid').srcObject = localStream;
+    document.getElementById('groupCallJoinBtn').style.display='none';
+    document.getElementById('groupCallLeaveBtn').style.display='';
+    socket.emit('group_call_join', {room_id:groupCallRoom});
+    sysMsg(t('joined_group_call')||'انضممت للمكالمة الجماعية');
+}
+
+function leaveGroupCall(){
+    if(!groupCallRoom) return;
+    socket.emit('group_call_leave', {room_id:groupCallRoom});
+    // Cleanup all peer connections
+    for(let sid in groupPCs){
+        try { groupPCs[sid].close(); } catch(e){}
+    }
+    groupPCs = {};
+    groupStreams = {};
+    if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
+    document.getElementById('localVid').srcObject=null;
+    document.getElementById('vidArea').classList.remove('on');
+    document.getElementById('groupCallBanner').classList.remove('on');
+    document.getElementById('groupCallJoinBtn').style.display='';
+    document.getElementById('groupCallLeaveBtn').style.display='none';
+    inGroupCall = false;
+    groupCallRoom = null;
+    sysMsg(t('left_group_call')||'غادرت المكالمة الجماعية');
+}
+
+async function createGroupPeerConnection(targetSid, isInitiator){
+    let gpc = new RTCPeerConnection(iceConfig);
+    groupPCs[targetSid] = gpc;
+    gpc.onicecandidate = e=>{
+        if(e.candidate) socket.emit('group_call_ice', {candidate:e.candidate, target:targetSid, room_id:groupCallRoom});
+    };
+    gpc.ontrack = e=>{
+        groupStreams[targetSid] = e.streams[0];
+        // Play remote audio
+        let audio = document.createElement('audio');
+        audio.autoplay = true;
+        audio.id = 'group-audio-'+targetSid;
+        audio.srcObject = e.streams[0];
+        document.body.appendChild(audio);
+    };
+    if(localStream) localStream.getTracks().forEach(t=> gpc.addTrack(t,localStream));
+    if(isInitiator){
+        let offer = await gpc.createOffer();
+        await gpc.setLocalDescription(offer);
+        socket.emit('group_call_offer', {sdp:offer.sdp, type:offer.type, target:targetSid, room_id:groupCallRoom});
+    }
+    return gpc;
+}
+
+// Socket events for group calls added in initSocket override
+let origInitSocket = initSocket;
+initSocket = function(user, pass, token){
+    origInitSocket(user, pass, token);
+
+    socket.on('group_call_invite', d=>{
+        groupCallRoom = d.room_id;
+        document.getElementById('groupCallText').textContent = d.initiator + ' بدأ مكالمة جماعية في ' + d.room_name;
+        document.getElementById('groupCallBanner').classList.add('on');
+    });
+
+    socket.on('group_call_participants', async d=>{
+        for(let p of d.participants){
+            await createGroupPeerConnection(p.sid, true);
+        }
+    });
+
+    socket.on('group_call_peer_joined', async d=>{
+        await createGroupPeerConnection(d.sid, false);
+        sysMsg((d.username||'مستخدم') + ' انضم للمكالمة');
+    });
+
+    socket.on('group_call_peer_left', d=>{
+        let gpc = groupPCs[d.sid];
+        if(gpc){ try{gpc.close();}catch(e){} }
+        delete groupPCs[d.sid];
+        delete groupStreams[d.sid];
+        let audioEl = document.getElementById('group-audio-'+d.sid);
+        if(audioEl) audioEl.remove();
+        sysMsg((d.username||'مستخدم') + ' غادر المكالمة');
+    });
+
+    socket.on('group_call_offer', async d=>{
+        let gpc = groupPCs[d.sender];
+        if(!gpc) gpc = await createGroupPeerConnection(d.sender, false);
+        await gpc.setRemoteDescription(new RTCSessionDescription({sdp:d.sdp, type:d.type}));
+        let answer = await gpc.createAnswer();
+        await gpc.setLocalDescription(answer);
+        socket.emit('group_call_answer', {sdp:answer.sdp, type:answer.type, target:d.sender, room_id:groupCallRoom});
+    });
+
+    socket.on('group_call_answer', async d=>{
+        let gpc = groupPCs[d.sender];
+        if(gpc) await gpc.setRemoteDescription(new RTCSessionDescription({sdp:d.sdp, type:d.type}));
+    });
+
+    socket.on('group_call_ice', async d=>{
+        let gpc = groupPCs[d.sender];
+        if(gpc && d.candidate){
+            try{ await gpc.addIceCandidate(new RTCIceCandidate(d.candidate)); }catch(e){}
+        }
+    });
+
+    socket.on('file_search_results', d=>{
+        let el = document.getElementById('sharedFiles');
+        el.innerHTML='';
+        if(!d.files || !d.files.length){
+            el.innerHTML='<div style="text-align:center;color:var(--dim);padding:10px;font-size:.78em;">لا توجد نتائج</div>';
+            return;
+        }
+        d.files.forEach(f=> addShared(f));
+    });
+
+    // Update quota after login
+    socket.on('auth_result', d=>{ if(d.ok) setTimeout(updateQuotaDisplay, 500); });
+};
+
+// ============================================================
+// SMART RECONNECTION (exponential backoff)
+// ============================================================
+let reconnectAttempts = 0;
+let maxReconnectDelay = 30000;
+
+// Override Socket.IO reconnect behavior
+let origConnectHandler = null;
+if(typeof io !== 'undefined'){
+    // Enhance socket reconnection in initSocket
+    let _origInitSocket2 = initSocket;
+    initSocket = function(user, pass, token){
+        _origInitSocket2(user, pass, token);
+        socket.io.on('reconnect_attempt', ()=>{
+            reconnectAttempts++;
+            let delay = Math.min(1000 * Math.pow(1.5, reconnectAttempts), maxReconnectDelay);
+            socket.io.opts.reconnectionDelay = delay;
+            document.getElementById('connBar').textContent = 'جاري إعادة الاتصال... (محاولة '+reconnectAttempts+')';
+        });
+        socket.io.on('reconnect', ()=>{
+            reconnectAttempts = 0;
+            socket.io.opts.reconnectionDelay = 1000;
+            document.getElementById('connBar').classList.remove('on');
+            // Re-sync state
+            if(selRoom) socket.emit('get_room_history', {room_id:selRoom});
+            else if(selUserName) socket.emit('get_dm_history', {username:selUserName});
+        });
+    };
+}
 
 // --- i18n initialization ---
 (function(){

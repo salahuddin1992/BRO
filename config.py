@@ -48,6 +48,11 @@ MESH_MAX_SERVERS = 100
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 UPLOAD_FOLDER = os.path.join(RUNTIME_PATH, "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+CHUNK_UPLOAD_FOLDER = os.path.join(RUNTIME_PATH, "uploads", "_chunks")
+os.makedirs(CHUNK_UPLOAD_FOLDER, exist_ok=True)
+DEFAULT_USER_QUOTA = 500 * 1024 * 1024  # 500MB per user
+FILE_ENCRYPTION_KEY = os.environ.get("BRO_FILE_KEY", SECRET_KEY[:32])
+FILE_TTL_DAYS = int(os.environ.get("BRO_FILE_TTL", "0"))  # 0 = no expiry
 
 # Database
 DB_PATH = os.path.join(RUNTIME_PATH, "helen_wifi.db")

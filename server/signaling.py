@@ -52,6 +52,31 @@ class SignalingServer:
             if not room["users"]:
                 del self.rooms[room_id]
 
+    def join_room(self, room_id, username, sid):
+        """Add a user to a signaling room (for group calls)."""
+        if room_id not in self.rooms:
+            self.rooms[room_id] = {"users": [], "created": datetime.utcnow().isoformat()}
+        room = self.rooms[room_id]
+        if not any(u["sid"] == sid for u in room["users"]):
+            room["users"].append({"sid": sid, "username": username})
+        self.user_rooms[sid] = room_id
+
+    def leave_room(self, room_id, sid):
+        """Remove a user from a signaling room."""
+        self.user_rooms.pop(sid, None)
+        if room_id in self.rooms:
+            room = self.rooms[room_id]
+            room["users"] = [u for u in room["users"] if u["sid"] != sid]
+            if not room["users"]:
+                del self.rooms[room_id]
+
+    def get_room_users(self, room_id):
+        """Get list of users in a signaling room."""
+        room = self.rooms.get(room_id)
+        if room:
+            return [{"sid": u["sid"], "username": u["username"]} for u in room["users"]]
+        return []
+
     def get_stats(self):
         return {
             "active_rooms": len(self.rooms),

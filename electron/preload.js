@@ -25,6 +25,18 @@ contextBridge.exposeInMainWorld('helenDesktop', {
     showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
     showSaveDialog: (options) => ipcRenderer.invoke('show-save-dialog', options),
 
+    // Auto-start
+    setAutoStart: (enable) => ipcRenderer.invoke('set-auto-start', enable),
+
+    // Updates
+    checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+
+    // Deep link handler
+    onDeepLink: (callback) => ipcRenderer.on('deep-link', (event, data) => callback(data)),
+
+    // Update available handler
+    onUpdateAvailable: (callback) => ipcRenderer.on('update-available', (event, info) => callback(info)),
+
     // Platform
     platform: process.platform,
     isElectron: true,
