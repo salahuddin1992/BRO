@@ -33,6 +33,7 @@ from network.detector import NetworkDetector
 from network.turn_server import LocalTurnServer
 from network.discovery import ServiceDiscovery
 from network.ws_mesh import WebSocketMeshBridge
+from network.sfu import SFUManager
 from mesh.mesh_node import MeshNode
 from server.signaling import SignalingServer
 from database.db import Database, ROLE_USER, ROLE_MODERATOR, ROLE_ADMIN
@@ -114,7 +115,14 @@ class BROServer:
         self.signaling = SignalingServer(self.sio)
 
         # Local TURN/STUN server (WebRTC without internet)
-        self.turn_server = LocalTurnServer()
+        # Full TURN with relay + UDP/TCP/TLS + REST API credentials
+        self.turn_server = LocalTurnServer(
+            secret_key=config.SECRET_KEY,
+            relay_ip=self.host_ip,
+        )
+
+        # SFU Manager (Selective Forwarding Unit for reliable media relay)
+        self.sfu = SFUManager(self.sio)
 
         # mDNS/Zeroconf discovery (auto-find peers - register on all interfaces)
         self.discovery = ServiceDiscovery(self.server_id, self.host_ip, config.SERVER_PORT,
@@ -724,13 +732,19 @@ class BROServer:
 
         @self.app.route("/api/ice-config")
         def ice_config():
-            # Local-only: use our own STUN server on each detected interface
-            servers = []
+            # Full ICE config with STUN + TURN (UDP/TCP/TLS) + credentials
+            username = request.args.get("username")
+            config_data = self.turn_server.get_ice_server_config(self.host_ip, username)
+            # Also add STUN on all other interfaces
+            existing_urls = set()
+            for s in config_data["iceServers"]:
+                urls = s["urls"] if isinstance(s["urls"], list) else [s["urls"]]
+                existing_urls.update(urls)
             for iface in self.detector.interfaces:
-                servers.append({"urls": f"stun:{iface['ip']}:{self.turn_server.port}"})
-            if not servers:
-                servers.append(self.turn_server.get_ice_server_config(self.host_ip))
-            return jsonify({"iceServers": servers})
+                stun_url = f"stun:{iface['ip']}:{self.turn_server.port}"
+                if stun_url not in existing_urls:
+                    config_data["iceServers"].insert(0, {"urls": stun_url})
+            return jsonify(config_data)
 
         # --- QR Code ---
         @self.app.route("/api/qr-code")
@@ -957,6 +971,48 @@ class BROServer:
             self.sio.emit(event, payload)
             return jsonify({"status": "ok"})
 
+        # ── WebRTC Monitoring & Diagnostics API ──────────────────────────
+
+        @self.app.route("/api/rtc/diagnostics")
+        def rtc_diagnostics():
+            """Full WebRTC diagnostics dashboard data."""
+            if not session.get("admin"):
+                return jsonify({"error": "unauthorized"}), 403
+            return jsonify({
+                "signaling": self.signaling.get_stats(),
+                "turn": self.turn_server.get_stats(),
+                "sfu": self.sfu.get_stats(),
+                "active_calls": self.signaling.get_active_calls(),
+            })
+
+        @self.app.route("/api/rtc/call-logs")
+        def rtc_call_logs():
+            """Recent call logs with ICE diagnostics."""
+            if not session.get("admin"):
+                return jsonify({"error": "unauthorized"}), 403
+            limit = request.args.get("limit", 50, type=int)
+            return jsonify({"logs": self.signaling.get_call_logs(limit)})
+
+        @self.app.route("/api/rtc/turn-credentials")
+        def rtc_turn_credentials():
+            """Get fresh TURN credentials (time-limited)."""
+            username = request.args.get("username")
+            return jsonify(self.turn_server.get_ice_server_config(self.host_ip, username))
+
+        @self.app.route("/api/rtc/turn-stats")
+        def rtc_turn_stats():
+            """TURN server statistics."""
+            if not session.get("admin"):
+                return jsonify({"error": "unauthorized"}), 403
+            return jsonify(self.turn_server.get_stats())
+
+        @self.app.route("/api/rtc/sfu-stats")
+        def rtc_sfu_stats():
+            """SFU room statistics."""
+            if not session.get("admin"):
+                return jsonify({"error": "unauthorized"}), 403
+            return jsonify(self.sfu.get_stats())
+
     def _setup_events(self):
         @self.sio.on("connect")
         def on_connect():
@@ -967,15 +1023,17 @@ class BROServer:
                 "connected_at": datetime.utcnow().isoformat(),
                 "status": "online",
             }
-            # Local-only ICE: our STUN server on all interfaces
-            local_ice = []
+            # Full ICE config: STUN + TURN (UDP/TCP/TLS) with credentials
+            ice_config = self.turn_server.get_ice_server_config(self.host_ip)
+            # Add STUN on all other interfaces
             for iface in self.detector.interfaces:
-                local_ice.append({"urls": f"stun:{iface['ip']}:{self.turn_server.port}"})
-            if not local_ice:
-                local_ice.append(self.turn_server.get_ice_server_config(self.host_ip))
+                stun_url = f"stun:{iface['ip']}:{self.turn_server.port}"
+                if not any(stun_url in str(s.get("urls", "")) for s in ice_config["iceServers"]):
+                    ice_config["iceServers"].insert(0, {"urls": stun_url})
             emit("server_info", {
                 "server_id": self.server_id,
-                "ice_servers": local_ice,
+                "ice_servers": ice_config["iceServers"],
+                "sfu_available": True,
                 "is_fiber": self.is_fiber,
                 "networks": [{"ip": i["ip"], "type": i["type"], "name": i["name"]} for i in self.detector.interfaces],
             })
@@ -990,7 +1048,8 @@ class BROServer:
                 if not still_online:
                     self.db.set_offline(name)
                 self._log(f"Disconnected: {name}")
-            self.signaling.handle_disconnect(sid)
+            self.signaling.handle_disconnect(sid, username=name)
+            self.sfu.handle_disconnect(sid)
             # Notify typing recipients that this user stopped typing
             ts = self.typing_state.pop(sid, None)
             if ts and name:
@@ -1037,6 +1096,7 @@ class BROServer:
                 self.clients[sid]["username"] = username
                 self.clients[sid]["status"] = "online"
                 self.db.set_status(username, "online")
+                self.signaling.register_session(username, sid)
                 self._log(f"Registered: {username}")
                 rooms = self.db.get_user_rooms(username)
                 role = self.db.get_user_role(username)
@@ -1066,6 +1126,7 @@ class BROServer:
                 self.clients[sid]["username"] = username
                 self.clients[sid]["status"] = "online"
                 self.db.set_status(username, "online")
+                self.signaling.register_session(username, sid)
                 self._log(f"Logged in: {username}")
                 rooms = self.db.get_user_rooms(username)
                 role = self.db.get_user_role(username)
@@ -1089,6 +1150,7 @@ class BROServer:
                 self.clients[sid]["username"] = username
                 self.clients[sid]["status"] = "online"
                 self.db.set_status(username, "online")
+                self.signaling.register_session(username, sid)
                 self._log(f"Token resume: {username}")
                 rooms = self.db.get_user_rooms(username)
                 role = self.db.get_user_role(username)
@@ -1533,57 +1595,89 @@ class BROServer:
         # --- WebRTC signaling ---
         @self.sio.on("call_request")
         def on_call_req(data):
-            notify_incoming_call(data.get("sender_name", "?"), data.get("call_type", "video"))
+            sid = request.sid
+            target = data["target"]
+            call_type = data.get("call_type", "video")
+            # Create call in state machine (IDLE -> RINGING)
+            call_id = self.signaling.create_call(sid, target, call_type)
+            notify_incoming_call(data.get("sender_name", "?"), call_type)
             self._route_event("incoming_call", {
-                "sender": request.sid,
+                "sender": sid,
                 "sender_name": data.get("sender_name"),
-                "call_type": data.get("call_type", "video"),
-                "target": data["target"],
-            }, data["target"])
+                "call_type": call_type,
+                "call_id": call_id,
+                "target": target,
+            }, target)
 
         @self.sio.on("call_accept")
         def on_call_accept(data):
+            sid = request.sid
+            target = data["target"]
+            call_id = data.get("call_id")
+            if call_id:
+                self.signaling.accept_call(call_id)
             self._route_event("call_accepted", {
-                "sender": request.sid,
-                "target": data["target"],
-            }, data["target"])
+                "sender": sid,
+                "call_id": call_id,
+                "target": target,
+            }, target)
 
         @self.sio.on("call_reject")
         def on_call_reject(data):
+            sid = request.sid
+            target = data["target"]
+            call_id = data.get("call_id")
+            if call_id:
+                self.signaling.end_call(call_id, reason="rejected")
             self._route_event("call_rejected", {
-                "sender": request.sid,
-                "target": data["target"],
-            }, data["target"])
+                "sender": sid,
+                "call_id": call_id,
+                "target": target,
+            }, target)
 
         @self.sio.on("call_end")
         def on_call_end(data):
             target = data.get("target")
+            call_id = data.get("call_id")
+            if call_id:
+                self.signaling.end_call(call_id)
             if target:
                 self._route_event("call_ended", {
                     "sender": request.sid,
+                    "call_id": call_id,
                     "target": target,
                 }, target)
 
         @self.sio.on("webrtc_offer")
         def on_offer(data):
-            self._route_event("webrtc_offer", {
+            call_id = data.get("call_id")
+            if call_id:
+                self.signaling.call_connecting(call_id)
+            # Use reliable signaling with ACK
+            self.signaling.send_reliable("webrtc_offer", {
                 "sdp": data["sdp"], "type": data["type"],
                 "sender": request.sid, "target": data["target"],
-            }, data["target"])
+                "call_id": call_id,
+            }, data["target"], sender_sid=request.sid)
 
         @self.sio.on("webrtc_answer")
         def on_answer(data):
-            self._route_event("webrtc_answer", {
+            self.signaling.send_reliable("webrtc_answer", {
                 "sdp": data["sdp"], "type": data["type"],
                 "sender": request.sid, "target": data["target"],
-            }, data["target"])
+                "call_id": data.get("call_id"),
+            }, data["target"], sender_sid=request.sid)
 
         @self.sio.on("webrtc_ice")
         def on_ice(data):
-            self._route_event("webrtc_ice", {
+            call_id = data.get("call_id")
+            if call_id:
+                self.signaling.record_ice_candidate(call_id, request.sid, data.get("candidate"))
+            self.signaling.send_reliable("webrtc_ice", {
                 "candidate": data.get("candidate"),
                 "sender": request.sid, "target": data["target"],
-            }, data["target"])
+                "call_id": call_id,
+            }, data["target"], sender_sid=request.sid)
 
     def _deliver_offline_messages(self, sid, username):
         """Deliver queued offline messages to a user who just came online."""
@@ -1699,7 +1793,9 @@ class BROServer:
   Client    : http://{self.host_ip}:{port}/client
   Admin     : http://{self.host_ip}:{port}/admin
   QR Code   : http://{self.host_ip}:{port}/api/qr-code
-  STUN      : Local only (stun:{self.host_ip}:3478)
+  STUN/TURN : stun:{self.host_ip}:3478 | turn:UDP/TCP:3478
+  SFU       : Active (relay media server)
+  Diagnostics: http://{self.host_ip}:{port}/api/rtc/diagnostics
   WS Mesh   : ws://{self.host_ip}:{port + 2}
   mDNS      : Active (auto-discovery on all networks)
 """)

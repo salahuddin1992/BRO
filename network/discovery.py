@@ -110,7 +110,11 @@ class ServiceDiscovery:
 
     def add_service(self, zc, type_, name):
         """Called when a new Helen WiFi server is discovered."""
-        info = zc.get_service_info(type_, name)
+        try:
+            info = zc.get_service_info(type_, name)
+        except RuntimeError:
+            # Eventlet monkey-patches can cause "Use AsyncServiceInfo" errors
+            info = None
         if not info:
             return
 

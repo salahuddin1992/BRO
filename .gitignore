@@ -8,6 +8,8 @@ dist/
 uploads/
 *.log
 *.db
+*.db-shm
+*.db-wal
 .secret_key
 .env
 =*

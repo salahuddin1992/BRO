@@ -550,6 +550,7 @@ body.font-large { font-size:17px; }
 
 <script src="/static/js/i18n.js"></script>
 <script src="/static/js/socket.io.min.js"></script>
+<script src="/static/js/webrtc_engine.js"></script>
 <script>
 let socket, me, myRole='user';
 let selUser=null, selUserName=null, selRoom=null;
@@ -586,6 +587,10 @@ let appSettings = {
 let iceConfig = {iceServers:[]};
 let authToken = localStorage.getItem('helen_token') || null;
 let savedUser = localStorage.getItem('helen_user') || null;
+
+// WebRTC Engine (initialized after socket connection)
+let rtcEngine = null;
+let reliableSignaling = null;
 
 const IMAGE_EXTS = ['png','jpg','jpeg','gif','bmp','webp','svg'];
 
@@ -909,6 +914,19 @@ function initSocket(user, pass, token){
         if(d.ice_servers) iceConfig.iceServers = d.ice_servers;
         document.getElementById('iFiber').textContent = d.is_fiber ? t('fiber') : t('normal');
         document.getElementById('iFiber').style.color = d.is_fiber ? 'var(--green)' : '';
+        // Initialize WebRTC Engine with full ICE config
+        if(typeof WebRTCEngine !== 'undefined' && !rtcEngine){
+            rtcEngine = new WebRTCEngine(socket, {
+                iceServers: iceConfig.iceServers,
+                preferSFU: !!d.sfu_available,
+                enableDiagnostics: true,
+            });
+            reliableSignaling = rtcEngine.signaling;
+            if(me) reliableSignaling.startHeartbeat(me);
+            rtcEngine.onConnectionQuality = (sid, q)=>{
+                console.log('Connection quality:', sid.substring(0,6), q);
+            };
+        }
     });
 
     socket.on('users_online', d=>{

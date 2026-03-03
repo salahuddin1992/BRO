@@ -57,17 +57,28 @@ class WebSocketMeshBridge:
 
     def _run_loop(self):
         """Run asyncio event loop in background thread."""
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
         try:
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
             self._loop.run_until_complete(self._start_server())
             # Start reconnection monitor
             self._loop.create_task(self._reconnect_monitor())
             self._loop.run_forever()
+        except RuntimeError as e:
+            # Eventlet monkey-patching can conflict with asyncio event loops
+            logger.debug(f"WebSocket mesh deferred (eventlet conflict): {e}")
         except Exception as e:
             logger.warning(f"WebSocket mesh loop error: {e}")
         finally:
-            self._loop.close()
+            try:
+                if self._loop and not self._loop.is_closed():
+                    # Cancel pending tasks to avoid RuntimeWarning
+                    pending = asyncio.all_tasks(self._loop)
+                    for task in pending:
+                        task.cancel()
+                    self._loop.close()
+            except Exception:
+                pass
 
     async def _start_server(self):
         """Start WebSocket server for incoming mesh connections."""
