@@ -22,7 +22,9 @@ _w.filterwarnings("ignore", category=DeprecationWarning, module="msgpack")
 
 try:
     import eventlet as _ev
-    _ev.monkey_patch()
+    # Exclude os to keep real asyncio working — zeroconf and aiortc
+    # rely on asyncio event loops running in real OS threads.
+    _ev.monkey_patch(os=False)
 except ImportError:
     try:
         from gevent import monkey as _gm
