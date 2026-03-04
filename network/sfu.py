@@ -88,13 +88,20 @@ class SFURoom:
 
 
 class SFUManager:
-    """Manages SFU rooms and coordinates signaling for SFU-based calls.
+    """Manages SFU rooms and coordinates media relay for group calls.
 
-    Architecture:
-    - Star topology: each participant connects to every other via TURN relay
-    - Server coordinates: negotiation, dominant speaker, quality hints
-    - Scalability: N connections per participant (not N*(N-1)/2 full mesh)
-    - All connections go through TURN relay for NAT traversal reliability
+    Two modes:
+    1. **Real SFU** (when aiortc available): Server terminates WebRTC and
+       relays media. Each participant has 1 connection to the server.
+       Scales to large groups.
+    2. **Signaling relay** (fallback): Server coordinates P2P WebRTC
+       between participants. Each participant connects to every other.
+       Good for groups up to 4-5.
+
+    Architecture (Real SFU):
+      Client A --[WebRTC]--> Server --[relay]--> Client B, C, D
+      Client B --[WebRTC]--> Server --[relay]--> Client A, C, D
+      N connections total (not N*(N-1)/2)
     """
 
     def __init__(self, sio):
@@ -103,7 +110,7 @@ class SFUManager:
         self._participant_rooms = {}  # {sid: room_id}
         self._lock = threading.Lock()
 
-        # Negotiation tracking
+        # Negotiation tracking (for signaling relay fallback)
         self._pending_negotiations = {}  # {negotiation_id: {offer_sid, answer_sid, state}}
         self._NEGOTIATION_TIMEOUT = 30  # seconds
 
@@ -111,11 +118,51 @@ class SFUManager:
         self._audio_levels = defaultdict(lambda: defaultdict(float))
         self._dominant_speaker = {}  # {room_id: sid}
 
+        # Real SFU media relay (aiortc)
+        self._media_bridge = None
+        self._init_media_bridge()
+
         self._setup_handlers()
 
         # Start cleanup thread for stale negotiations
         t = threading.Thread(target=self._cleanup_loop, daemon=True)
         t.start()
+
+    def _init_media_bridge(self):
+        """Initialize the server-side media relay if aiortc is available."""
+        try:
+            from network.media_relay import SFUMediaBridge, AIORTC_AVAILABLE
+            if AIORTC_AVAILABLE:
+                self._media_bridge = SFUMediaBridge()
+                self._media_bridge.start(
+                    on_renegotiate=self._on_media_renegotiate,
+                    on_ice_candidate=self._on_media_ice,
+                )
+                logger.info("SFU using real media relay (aiortc)")
+            else:
+                logger.info("SFU using signaling relay (aiortc not available)")
+        except Exception as e:
+            logger.info(f"SFU using signaling relay fallback: {e}")
+
+    @property
+    def has_media_relay(self):
+        """Whether the real media relay is active."""
+        return self._media_bridge is not None and self._media_bridge.available
+
+    def _on_media_renegotiate(self, room_id, sid, sdp_dict):
+        """Called by media bridge when server needs to renegotiate with client."""
+        self.sio.emit("sfu_server_offer", {
+            "sdp": sdp_dict["sdp"],
+            "type": sdp_dict["type"],
+            "room_id": room_id,
+        }, room=sid)
+
+    def _on_media_ice(self, room_id, sid, candidate_dict):
+        """Called by media bridge when server generates an ICE candidate."""
+        self.sio.emit("sfu_server_ice", {
+            "candidate": candidate_dict,
+            "room_id": room_id,
+        }, room=sid)
 
     def _setup_handlers(self):
         """Register SFU-specific Socket.IO events."""
@@ -138,7 +185,7 @@ class SFUManager:
             self._participant_rooms[sid] = room_id
             sio.enter_room(sid, f"sfu_{room_id}")
 
-            # Tell the new participant about existing members
+            # Tell the new participant about existing members and SFU mode
             others = room.get_other_participants(sid)
             sio.emit("sfu_room_state", {
                 "room_id": room_id,
@@ -148,6 +195,7 @@ class SFUManager:
                     for p in others
                 ],
                 "sfu_mode": True,
+                "server_relay": self.has_media_relay,  # True = real SFU
                 "ice_policy": "relay",  # Force relay for SFU
             }, room=sid)
 
@@ -172,45 +220,114 @@ class SFUManager:
 
         @sio.on("sfu_offer")
         def on_sfu_offer(data):
-            """Client sends SDP offer through SFU."""
+            """Client sends SDP offer.
+
+            Real SFU mode: offer goes to server media relay.
+            Fallback mode: offer is relayed to target peer.
+            """
             from flask import request
-            target = data.get("target")
-            negotiation_id = data.get("negotiation_id")
-            if target:
-                sio.emit("sfu_offer", {
-                    "sdp": data.get("sdp"),
-                    "type": data.get("type", "offer"),
-                    "sender": request.sid,
-                    "negotiation_id": negotiation_id,
-                    "room_id": data.get("room_id"),
-                }, room=target)
+            sid = request.sid
+            room_id = data.get("room_id")
+
+            if self.has_media_relay and room_id:
+                # Real SFU: handle offer server-side
+                room = self._rooms.get(room_id)
+                username = ""
+                if room:
+                    p = room.participants.get(sid)
+                    if p:
+                        username = p["username"]
+                answer = self._media_bridge.handle_offer(
+                    room_id, sid, username, data.get("sdp")
+                )
+                if answer:
+                    sio.emit("sfu_answer", {
+                        "sdp": answer["sdp"],
+                        "type": answer["type"],
+                        "sender": "__server__",
+                        "room_id": room_id,
+                    }, room=sid)
+            else:
+                # Fallback: relay offer to target peer
+                target = data.get("target")
+                if target:
+                    sio.emit("sfu_offer", {
+                        "sdp": data.get("sdp"),
+                        "type": data.get("type", "offer"),
+                        "sender": sid,
+                        "negotiation_id": data.get("negotiation_id"),
+                        "room_id": room_id,
+                    }, room=target)
 
         @sio.on("sfu_answer")
         def on_sfu_answer(data):
-            """Client sends SDP answer through SFU."""
+            """Client sends SDP answer.
+
+            Real SFU mode: answer goes to server media relay (renegotiation).
+            Fallback mode: answer is relayed to target peer.
+            """
             from flask import request
-            target = data.get("target")
-            negotiation_id = data.get("negotiation_id")
-            if target:
-                sio.emit("sfu_answer", {
-                    "sdp": data.get("sdp"),
-                    "type": data.get("type", "answer"),
-                    "sender": request.sid,
-                    "negotiation_id": negotiation_id,
-                    "room_id": data.get("room_id"),
-                }, room=target)
+            sid = request.sid
+            room_id = data.get("room_id")
+
+            if self.has_media_relay and data.get("sender") == "__server__":
+                # This shouldn't happen (server sends answers, not receives)
+                pass
+            elif self.has_media_relay and room_id:
+                # Client answering a server-initiated renegotiation
+                self._media_bridge.handle_answer(
+                    room_id, sid, data.get("sdp")
+                )
+            else:
+                # Fallback: relay answer to target peer
+                target = data.get("target")
+                if target:
+                    sio.emit("sfu_answer", {
+                        "sdp": data.get("sdp"),
+                        "type": data.get("type", "answer"),
+                        "sender": sid,
+                        "negotiation_id": data.get("negotiation_id"),
+                        "room_id": room_id,
+                    }, room=target)
 
         @sio.on("sfu_ice")
         def on_sfu_ice(data):
-            """Client sends ICE candidate through SFU."""
+            """Client sends ICE candidate.
+
+            Real SFU mode: candidate goes to server media relay.
+            Fallback mode: candidate is relayed to target peer.
+            """
             from flask import request
-            target = data.get("target")
-            if target:
-                sio.emit("sfu_ice", {
-                    "candidate": data.get("candidate"),
-                    "sender": request.sid,
-                    "room_id": data.get("room_id"),
-                }, room=target)
+            sid = request.sid
+            room_id = data.get("room_id")
+
+            if self.has_media_relay and room_id:
+                # Real SFU: add candidate to server-side PC
+                candidate = data.get("candidate")
+                if candidate and isinstance(candidate, dict):
+                    self._media_bridge.add_ice_candidate(
+                        room_id, sid, candidate
+                    )
+            else:
+                # Fallback: relay to target peer
+                target = data.get("target")
+                if target:
+                    sio.emit("sfu_ice", {
+                        "candidate": data.get("candidate"),
+                        "sender": sid,
+                        "room_id": room_id,
+                    }, room=target)
+
+        @sio.on("sfu_server_answer")
+        def on_sfu_server_answer(data):
+            """Client responds to server-initiated renegotiation offer."""
+            from flask import request
+            sid = request.sid
+            room_id = data.get("room_id")
+            if self.has_media_relay and room_id:
+                self._media_bridge.handle_answer(
+                    room_id, sid, data.get("sdp")
+                )
 
         @sio.on("sfu_media_state")
         def on_media_state(data):
@@ -334,6 +451,13 @@ class SFUManager:
         info = room.remove_participant(sid)
         self.sio.leave_room(sid, f"sfu_{room_id}")
 
+        # Clean up media bridge connection
+        if self.has_media_relay:
+            try:
+                self._media_bridge.remove_participant(room_id, sid)
+            except Exception:
+                pass
+
         if info:
             # Notify remaining participants
             for p in room.get_other_participants(sid):
@@ -373,9 +497,13 @@ class SFUManager:
 
     def get_stats(self):
         """Get overall SFU statistics."""
-        return {
+        stats = {
             "active_rooms": len(self._rooms),
             "total_participants": sum(len(r.participants) for r in self._rooms.values()),
             "rooms": [r.get_stats() for r in self._rooms.values()],
             "pending_negotiations": len(self._pending_negotiations),
+            "mode": "server_relay" if self.has_media_relay else "signaling_relay",
         }
+        if self._media_bridge:
+            stats["media_bridge"] = self._media_bridge.get_stats()
+        return stats
