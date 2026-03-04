@@ -12,17 +12,18 @@ Usage:
 import warnings
 warnings.filterwarnings("ignore", message=".*Eventlet is deprecated.*")
 
-_async_mode = "eventlet"
+_async_mode = "threading"
 try:
     import eventlet
     eventlet.monkey_patch()
+    _async_mode = "eventlet"
 except ImportError:
     try:
         from gevent import monkey
         monkey.patch_all()
         _async_mode = "gevent"
     except ImportError:
-        raise ImportError("Either eventlet or gevent is required")
+        pass  # fallback to threading mode (no monkey-patching needed)
 
 import sys
 import os
