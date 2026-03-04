@@ -41,6 +41,45 @@ def _find_libmagic_binaries():
     return binaries
 
 
+def _write_version_info(path):
+    """Create a PyInstaller version-info resource file (Windows PE metadata).
+
+    Embedding product/company information in the executable reduces
+    antivirus false positives significantly (FIX #10).
+    """
+    content = r"""# UTF-8
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    fileVers=(2, 0, 0, 0),
+    prodVers=(2, 0, 0, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo([
+      StringTable(
+        u'040904B0',
+        [StringStruct(u'CompanyName', u'Helen WiFi Project'),
+         StringStruct(u'FileDescription', u'Helen WiFi - LAN Communication Server'),
+         StringStruct(u'FileVersion', u'2.0.0'),
+         StringStruct(u'InternalName', u'HelenWiFi'),
+         StringStruct(u'OriginalFilename', u'HelenWiFi.exe'),
+         StringStruct(u'ProductName', u'Helen WiFi'),
+         StringStruct(u'ProductVersion', u'2.0.0'),
+         StringStruct(u'LegalCopyright', u'Helen WiFi Project')])
+    ]),
+    VarFileInfo([VarStruct(u'Translation', [0x0409, 1200])])
+  ]
+)
+"""
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(content)
+
+
 def build_server():
     """Build Python server into standalone executable using PyInstaller."""
     print("\n  === Building Python Server (PyInstaller) ===\n")
@@ -160,13 +199,23 @@ def build_server():
     # --onedir: avoids the 10-30s startup delay of --onefile where the entire
     # bundle (150-250MB) is decompressed to a temp folder on every launch.
     # With --onedir the files stay in place and the EXE starts instantly.
+
+    # FIX #10: Generate a Windows version-info resource file.
+    # Unsigned / UPX-packed EXEs with no metadata are the #1 trigger for
+    # antivirus false positives.  Adding company/product/version metadata
+    # makes the binary look legitimate and dramatically reduces detections.
+    vi_file = os.path.join(DIR, "version_info.txt")
+    _write_version_info(vi_file)
+
     print("[4/4] Building executable (--onedir)...")
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", "HelenWiFi",
         "--onedir",                                   # directory bundle (fast startup)
+        "--noupx",                                    # FIX #10: UPX packing triggers AV heuristics
         "--additional-hooks-dir", hooks_dir,          # FIX #1,3,4
         "--runtime-hook", rthook,                     # FIX #1
+        "--version-file", vi_file,                    # FIX #10: embed version metadata
         *data, *h_args, "--noconfirm",
         # NOTE: --noconsole deliberately omitted (FIX #5)
         os.path.join(DIR, "run.py"),

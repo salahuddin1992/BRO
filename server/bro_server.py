@@ -2259,7 +2259,14 @@ class BROServer:
 """)
 
         if getattr(sys, 'frozen', False):
-            threading.Timer(1.5, lambda: webbrowser.open(f"{scheme}://127.0.0.1:{port}/client")).start()
+            def _open_browser():
+                try:
+                    webbrowser.open(f"{scheme}://127.0.0.1:{port}/client")
+                except Exception:
+                    # No default browser configured (e.g. headless / kiosk).
+                    # The user can still navigate manually using the printed URL.
+                    pass
+            threading.Timer(1.5, _open_browser).start()
 
         # Use HTTPS if TLS certificates are available
         ssl_kwargs = {}
