@@ -509,8 +509,12 @@ class SignalingServer:
         """Periodic cleanup of stale data."""
         while True:
             try:
-                import eventlet
-                eventlet.sleep(5)
+                try:
+                    import eventlet
+                    eventlet.sleep(5)
+                except ImportError:
+                    import gevent
+                    gevent.sleep(5)
             except Exception:
                 time.sleep(5)
 

@@ -113,8 +113,13 @@ class BROServer:
         self.all_ips = self.detector.get_all_ips()
         self.is_fiber = self.detector.has_fiber()
 
-        # SocketIO (allow private network origins)
-        self.sio = SocketIO(self.app, cors_allowed_origins=_cors_origins, async_mode="eventlet",
+        # SocketIO (allow private network origins) - detect async mode
+        _sio_mode = "eventlet"
+        try:
+            import eventlet  # noqa: F401
+        except ImportError:
+            _sio_mode = "gevent"
+        self.sio = SocketIO(self.app, cors_allowed_origins=_cors_origins, async_mode=_sio_mode,
                             max_http_buffer_size=10*1024*1024, ping_timeout=60, ping_interval=25)
 
         # Mesh + Signaling (pass all interfaces for multi-network broadcast)
@@ -536,8 +541,9 @@ class BROServer:
             new = data.get("new_password", "")
             if not _check_admin_pw(old):
                 return jsonify({"error": "كلمة المرور الحالية خطأ"}), 400
-            if len(new) < 4:
-                return jsonify({"error": "كلمة المرور الجديدة قصيرة"}), 400
+            ok, err = self._validate_password(new)
+            if not ok:
+                return jsonify({"error": err}), 400
             self._admin_pw_hash = generate_password_hash(new)
             self.db.set_setting("admin_password_hash", self._admin_pw_hash)
             self._log("Admin password changed")
