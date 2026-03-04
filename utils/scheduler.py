@@ -85,7 +85,7 @@ def _cleanup_old_files(upload_folder, db=None):
     tracked = set()
     if db is not None:
         try:
-            for f in db.list_files(limit=100_000):
+            for f in db.get_files(limit=100_000):
                 tracked.add(f.get("saved_as", ""))
         except Exception:
             # If DB query fails, do NOT delete anything to be safe
