@@ -202,7 +202,21 @@ class Database:
 
     def _seed_default_users(self):
         defaults = [
+            # هيلين
             {"username": "هيلين", "password": "2008", "display_name": "هيلين", "role": "admin"},
+            # Admin
+            {"username": "GeneralManager", "password": "admin123", "display_name": "المدير العام", "role": "admin"},
+            {"username": "DeputyManager", "password": "admin123", "display_name": "نائب المدير", "role": "admin"},
+            # Moderator
+            {"username": "IT_Director", "password": "mod12345", "display_name": "مدير قسم التقنية", "role": "moderator"},
+            {"username": "HR_Director", "password": "mod12345", "display_name": "مدير الموارد البشرية", "role": "moderator"},
+            {"username": "Support_Lead", "password": "mod12345", "display_name": "مشرف الدعم الفني", "role": "moderator"},
+            # User
+            {"username": "Sales_Head", "password": "user1234", "display_name": "رئيس قسم المبيعات", "role": "user"},
+            {"username": "Marketing_Head", "password": "user1234", "display_name": "رئيس قسم التسويق", "role": "user"},
+            {"username": "Finance_Head", "password": "user1234", "display_name": "رئيس القسم المالي", "role": "user"},
+            {"username": "ProjectCoordinator", "password": "user1234", "display_name": "منسق المشاريع", "role": "user"},
+            {"username": "AdminSecretary", "password": "user1234", "display_name": "سكرتير الإدارة", "role": "user"},
         ]
         conn = self._get_conn()
         for u in defaults:
