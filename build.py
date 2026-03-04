@@ -149,15 +149,12 @@ def build_server():
     # 4. Build
     # FIX #5: REMOVED --noconsole so crash tracebacks are visible.
     #         The app itself minimises console noise (run.py --verbose controls output).
-    # FIX #6: SWITCHED from --onefile to --onedir.
-    #         --onefile extracts to %TEMP% on every launch which triggers Windows
-    #         Defender / antivirus heuristics and causes slow startup.  --onedir
-    #         produces a normal folder that does not trigger AV self-extraction alerts.
-    print("[4/4] Building executable (--onedir)...")
+    # Use --onefile to produce a single self-contained .exe with everything bundled.
+    print("[4/4] Building executable (--onefile)...")
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", "HelenWiFi",
-        "--onedir",                                   # FIX #6
+        "--onefile",                                  # single .exe
         "--additional-hooks-dir", hooks_dir,          # FIX #1,3,4
         "--runtime-hook", rthook,                     # FIX #1
         *data, *h_args, "--noconfirm",
@@ -171,7 +168,7 @@ def build_server():
         return False
 
     # Create necessary writable directories next to the executable
-    out_dir = os.path.join(DIR, "dist", "HelenWiFi")
+    out_dir = os.path.join(DIR, "dist")
     for d in ["uploads", "backups", "recordings"]:
         os.makedirs(os.path.join(out_dir, d), exist_ok=True)
 
@@ -180,8 +177,7 @@ def build_server():
     size = os.path.getsize(exe) / 1048576 if os.path.exists(exe) else 0
 
     print(f"\n  SERVER BUILD OK!")
-    print(f"  Output dir : dist/HelenWiFi/")
-    print(f"  Executable : dist/HelenWiFi/HelenWiFi{ext} ({size:.1f} MB)")
+    print(f"  Executable : dist/HelenWiFi{ext} ({size:.1f} MB)")
     print(f"  Client     : http://localhost:8400/client")
     print(f"  Admin      : http://localhost:8400/admin\n")
     return True
@@ -205,9 +201,9 @@ def build_electron():
         print("  Download: https://nodejs.org/")
         return False
 
-    # Check server exe exists (--onedir puts it inside dist/HelenWiFi/)
+    # Check server exe exists (--onefile puts it directly in dist/)
     ext = ".exe" if sys.platform == "win32" else ""
-    exe = os.path.join(DIR, "dist", "HelenWiFi", f"HelenWiFi{ext}")
+    exe = os.path.join(DIR, "dist", f"HelenWiFi{ext}")
     if not os.path.isfile(exe):
         print("  Warning: Server executable not found. Build server first:")
         print("    python build.py server")
