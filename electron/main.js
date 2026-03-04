@@ -2,7 +2,7 @@
  * Helen WiFi - Electron Main Process
  * Native desktop window + System Tray + Notifications + Auto-Update + Deep Linking
  */
-const { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, nativeImage, Notification, ipcMain, dialog, shell, session: electronSession } = require('electron');
 const path = require('path');
 const { spawn } = require('child_process');
 const net = require('net');
@@ -270,6 +270,24 @@ function createWindow() {
 
     // Remove default menu
     mainWindow.setMenuBarVisibility(false);
+
+    // Set Content Security Policy
+    mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+        callback({
+            responseHeaders: {
+                ...details.responseHeaders,
+                'Content-Security-Policy': [
+                    "default-src 'self' http://127.0.0.1:* http://localhost:*; " +
+                    "script-src 'self' 'unsafe-inline' http://127.0.0.1:* http://localhost:*; " +
+                    "style-src 'self' 'unsafe-inline'; " +
+                    "img-src 'self' data: blob: http://127.0.0.1:* http://localhost:*; " +
+                    "media-src 'self' blob: mediastream:; " +
+                    "connect-src 'self' ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:*; " +
+                    "font-src 'self';"
+                ],
+            },
+        });
+    });
 
     // Load the app
     mainWindow.loadURL(`${SERVER_URL}/client`);

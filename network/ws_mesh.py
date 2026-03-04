@@ -1,7 +1,7 @@
 """
-Helen WiFi - Eventlet-Compatible Mesh Communication
+Helen WiFi - Green-Thread Mesh Communication
 Persistent TCP connections between mesh nodes for real-time sync.
-Uses eventlet green sockets (no asyncio conflict).
+Uses eventlet or gevent green sockets (no asyncio conflict).
 Length-prefixed JSON frames + optional zlib compression.
 Smart reconnection with exponential backoff.
 HMAC challenge-response authentication (secret never sent on wire).
@@ -17,7 +17,31 @@ import threading
 import time
 import zlib
 
-import eventlet
+# Support both eventlet and gevent
+try:
+    import eventlet
+    _green = eventlet
+    _green_spawn = eventlet.spawn
+    _green_sleep = eventlet.sleep
+    _green_listen = eventlet.listen
+    _green_connect = eventlet.connect
+except ImportError:
+    import gevent
+    from gevent import socket as gsocket
+    _green = gevent
+    _green_spawn = gevent.spawn
+    _green_sleep = gevent.sleep
+
+    def _green_listen(addr):
+        sock = gsocket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(addr)
+        sock.listen(128)
+        return sock
+
+    def _green_connect(addr):
+        sock = gsocket.create_connection(addr)
+        return sock
 
 logger = logging.getLogger("BRO.ws_mesh")
 
@@ -29,7 +53,7 @@ MAX_MESSAGE_SIZE = 10 * 1024 * 1024  # 10MB
 
 
 class WebSocketMeshBridge:
-    """Eventlet-compatible mesh communication using green TCP sockets.
+    """Green-thread mesh communication using eventlet/gevent TCP sockets.
 
     Replaces the previous asyncio+websockets implementation that conflicted
     with eventlet monkey-patching. Uses length-prefixed JSON over TCP
@@ -55,13 +79,13 @@ class WebSocketMeshBridge:
         self._lock = threading.Lock()
 
     def start(self, on_message=None, on_peer_connected=None, on_peer_disconnected=None):
-        """Start mesh bridge server using eventlet green threads."""
+        """Start mesh bridge server using green threads."""
         self._on_message = on_message
         self._on_peer_connected = on_peer_connected
         self._on_peer_disconnected = on_peer_disconnected
         self._running = True
-        eventlet.spawn(self._run_server)
-        eventlet.spawn(self._reconnect_monitor)
+        _green_spawn(self._run_server)
+        _green_spawn(self._reconnect_monitor)
         logger.info(f"Mesh bridge started on port {self.ws_port}")
 
     def stop(self):
@@ -82,7 +106,7 @@ class WebSocketMeshBridge:
     def _run_server(self):
         """Listen for incoming mesh peer connections."""
         try:
-            server = eventlet.listen(("0.0.0.0", self.ws_port))
+            server = _green_listen(("0.0.0.0", self.ws_port))
             logger.info(f"Mesh bridge listening on :{self.ws_port}")
         except OSError as e:
             logger.warning(f"Mesh bridge bind failed on port {self.ws_port}: {e}")
@@ -91,11 +115,11 @@ class WebSocketMeshBridge:
         while self._running:
             try:
                 client_sock, addr = server.accept()
-                eventlet.spawn(self._handle_incoming, client_sock, addr)
+                _green_spawn(self._handle_incoming, client_sock, addr)
             except Exception:
                 if not self._running:
                     break
-                eventlet.sleep(0.1)
+                _green_sleep(0.1)
                 continue
 
         try:
@@ -169,14 +193,14 @@ class WebSocketMeshBridge:
     def connect_to_peer(self, host, port):
         """Initiate a connection to a peer server."""
         ws_port = port + 2
-        eventlet.spawn(self._connect_to, host, ws_port)
+        _green_spawn(self._connect_to, host, ws_port)
 
     def _connect_to(self, host, ws_port):
         """Establish outgoing connection to a peer."""
         peer_id = None
         sock = None
         try:
-            sock = eventlet.connect((host, ws_port))
+            sock = _green_connect((host, ws_port))
             sock.settimeout(5.0)
 
             # Challenge-response: receive challenge, send HMAC response
@@ -269,7 +293,7 @@ class WebSocketMeshBridge:
     def _reconnect_monitor(self):
         """Periodically attempt to reconnect to lost peers."""
         while self._running:
-            eventlet.sleep(5)
+            _green_sleep(5)
             now = time.time()
             for key, info in list(self._reconnect_peers.items()):
                 if info["attempts"] >= self._max_reconnect_attempts:
@@ -288,7 +312,7 @@ class WebSocketMeshBridge:
                 delay = min(2 ** info["attempts"], 120)
                 info["next_retry"] = now + delay
                 logger.debug(f"Reconnect attempt {info['attempts']} to {host}:{ws_port}")
-                eventlet.spawn(self._connect_to, host, ws_port)
+                _green_spawn(self._connect_to, host, ws_port)
 
     def _schedule_reconnect(self, host, ws_port, peer_id=None):
         """Schedule a peer for reconnection."""

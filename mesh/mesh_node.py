@@ -33,6 +33,9 @@ class MeshNode:
         self._local_users = []      # cached for periodic sync
         self._running = False
         self._lock = threading.Lock()
+        # Use HTTPS when TLS certificates are available
+        self._use_tls = config.TLS_AVAILABLE
+        self._scheme = "https" if self._use_tls else "http"
 
     def start(self):
         self._running = True
@@ -226,14 +229,15 @@ class MeshNode:
         # Use reachable_ip (the IP that delivered UDP) if available, fallback to host
         host = peer.get("reachable_ip", peer["host"])
         try:
-            url = f"http://{host}:{peer['port']}/api/mesh/sync-users"
+            url = f"{self._scheme}://{host}:{peer['port']}/api/mesh/sync-users"
             body = {
                 "server_id": self.server_id,
                 "host": self.host,
                 "port": self.port,
                 "users": local_users,
             }
-            requests.post(url, json=body, headers=self._mesh_auth_headers(body), timeout=3)
+            requests.post(url, json=body, headers=self._mesh_auth_headers(body),
+                          timeout=3, verify=False)
         except Exception:
             pass
 
@@ -245,9 +249,10 @@ class MeshNode:
             return False
         host = peer.get("reachable_ip", peer["host"])
         try:
-            url = f"http://{host}:{peer['port']}/api/mesh/forward"
+            url = f"{self._scheme}://{host}:{peer['port']}/api/mesh/forward"
             body = {"event": event, "data": data}
-            requests.post(url, json=body, headers=self._mesh_auth_headers(body), timeout=5)
+            requests.post(url, json=body, headers=self._mesh_auth_headers(body),
+                          timeout=5, verify=False)
             return True
         except Exception as e:
             logger.warning(f"Forward to {target_server_id} failed: {e}")
@@ -263,9 +268,10 @@ class MeshNode:
         for peer in peers:
             host = peer.get("reachable_ip", peer["host"])
             try:
-                url = f"http://{host}:{peer['port']}/api/mesh/broadcast"
+                url = f"{self._scheme}://{host}:{peer['port']}/api/mesh/broadcast"
                 body = {"event": event, "data": data}
-                requests.post(url, json=body, headers=self._mesh_auth_headers(body), timeout=3)
+                requests.post(url, json=body, headers=self._mesh_auth_headers(body),
+                              timeout=3, verify=False)
             except Exception:
                 pass
 
@@ -314,8 +320,8 @@ class MeshNode:
         """Manually connect to a peer (HTTP first, UDP fallback)"""
         # Try HTTP discovery
         try:
-            url = f"http://{host}:{port}/api/mesh/info"
-            resp = requests.get(url, headers=self._mesh_auth_headers(), timeout=3)
+            url = f"{self._scheme}://{host}:{port}/api/mesh/info"
+            resp = requests.get(url, headers=self._mesh_auth_headers(), timeout=3, verify=False)
             info = resp.json()
             sid = info["server_id"]
             with self._lock:

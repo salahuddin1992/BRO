@@ -108,19 +108,33 @@ class ServiceDiscovery:
 
     # --- ServiceBrowser callbacks ---
 
+    def _get_service_info_safe(self, zc, type_, name):
+        """Get service info in a real thread to avoid eventlet monkey-patch conflicts."""
+        result = [None]
+
+        def _fetch():
+            try:
+                result[0] = zc.get_service_info(type_, name, timeout=3000)
+            except RuntimeError:
+                # Eventlet monkey-patches can cause "Use AsyncServiceInfo" errors
+                try:
+                    info = ServiceInfo(type_, name)
+                    if zc.get_service_info(type_, name, timeout=3000):
+                        result[0] = info
+                except Exception:
+                    pass
+            except Exception:
+                pass
+
+        import threading as _threading
+        t = _threading.Thread(target=_fetch, daemon=True)
+        t.start()
+        t.join(timeout=5)
+        return result[0]
+
     def add_service(self, zc, type_, name):
         """Called when a new Helen WiFi server is discovered."""
-        try:
-            info = zc.get_service_info(type_, name)
-        except RuntimeError:
-            # Eventlet monkey-patches can cause "Use AsyncServiceInfo" errors
-            # Fallback: create ServiceInfo manually and request it
-            try:
-                info = ServiceInfo(type_, name)
-                if not zc.get_service_info(type_, name, timeout=3000):
-                    info = None
-            except Exception:
-                info = None
+        info = self._get_service_info_safe(zc, type_, name)
         if not info:
             return
 

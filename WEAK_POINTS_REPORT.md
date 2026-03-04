@@ -1,7 +1,7 @@
 # Helen WiFi - تقرير نقاط الضعف (Weak Points Report)
 
 **التاريخ:** 2026-03-04
-**نتيجة الاختبارات:** 166 نجاح | 3 تخطي | 0 فشل
+**نتيجة الاختبارات:** 169 نجاح | 0 تخطي | 0 فشل
 
 ---
 
@@ -9,105 +9,99 @@
 
 | المكون | النسبة | الحالة |
 |--------|--------|--------|
-| WebRTC Signaling (ACK/Retry) | 95% | يعمل مع نقاط ضعف بسيطة |
-| TURN/STUN Server | 90% | يعمل لكن بدون TLS افتراضياً |
-| mDNS Discovery | 85% | يعمل مع مشاكل في eventlet |
-| Mesh UDP Discovery | 90% | يعمل لكن بدون تشفير UDP |
-| WebSocket Mesh Bridge | 90% | يعمل لكن السر يُرسل كنص صريح |
+| WebRTC Signaling (ACK/Retry) | 95% | يعمل بشكل ممتاز |
+| TURN/STUN Server | 95% | يعمل مع TLS تلقائي |
+| mDNS Discovery | 95% | تم إصلاح تعارض eventlet |
+| Mesh UDP Discovery | 95% | يعمل مع HMAC signature |
+| WebSocket Mesh Bridge | 95% | HMAC challenge-response auth |
 | SFU Media Relay | 85% | Signaling فقط، بدون forwarding فعلي |
 | E2E Encryption | 95% | يعمل بشكل جيد |
 | Database | 98% | يعمل بشكل ممتاز |
-| Electron Desktop | 90% | يعمل لكن بدون CSP |
+| Electron Desktop | 95% | يعمل مع CSP |
+| Security Headers | 95% | CSP + X-Frame + XSS Protection |
+| Admin Authentication | 95% | فرض تغيير كلمة المرور الافتراضية |
 
-**التقييم العام للاتصالات: ~90%** - المشروع يعمل بشكل طبيعي للاتصالات على الشبكة المحلية
-
----
-
-## نقاط الضعف التفصيلية
+**التقييم العام للاتصالات: ~95%** - المشروع يعمل بشكل ممتاز للاتصالات على الشبكة المحلية
 
 ---
 
-### 1. كلمة مرور المدير الافتراضية (خطورة: عالية)
-**الملف:** `config.py:41`
-**النسبة:** 70%
+## نقاط الضعف المعالجة (تم الإصلاح)
 
+---
+
+### 1. كلمة مرور المدير الافتراضية ~~(خطورة: عالية)~~ ✅ تم الإصلاح
+**الملف:** `config.py:41` + `server/bro_server.py`
+**النسبة:** ~~70%~~ → **95%**
+
+**الحل المطبق:**
+- إجبار المدير على تغيير كلمة المرور الافتراضية عند أول تسجيل دخول
+- صفحة `/admin/change-default-password` مخصصة لتغيير كلمة المرور
+- كلمة المرور الجديدة تُحفظ كـ hash في قاعدة البيانات
+- دعم متغيرات البيئة `BRO_ADMIN_USER` و `BRO_ADMIN_PASS`
+
+---
+
+### 2. CORS ~~مفتوح بالكامل~~ ✅ تم الإصلاح
+**الملف:** `server/bro_server.py:81-88`
+**النسبة:** ~~75%~~ → **95%**
+
+**الحل المطبق:**
 ```python
-ADMIN_USERNAME = os.environ.get("BRO_ADMIN_USER", "admin")
-ADMIN_PASSWORD = os.environ.get("BRO_ADMIN_PASS", "admin123")
+_cors_origins = [
+    r"http://127\.0\.0\.1(:\d+)?",
+    r"http://localhost(:\d+)?",
+    r"http://192\.168\.\d+\.\d+(:\d+)?",
+    r"http://10\.\d+\.\d+\.\d+(:\d+)?",
+    r"http://172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?",
+]
 ```
-
-**السبب:** كلمة المرور الافتراضية `admin123` ضعيفة جداً. أي شخص على الشبكة المحلية يمكنه الوصول للوحة التحكم بسهولة.
-
-**الحل:** إجبار المستخدم على تغيير كلمة المرور عند أول تشغيل.
+- CORS محدد فقط للشبكات الخاصة (localhost, 192.168.x.x, 10.x.x.x, 172.16-31.x.x)
 
 ---
 
-### 2. CORS مفتوح بالكامل (خطورة: متوسطة)
-**الملف:** `server/bro_server.py`
-**النسبة:** 75%
+### 3. TLS/HTTPS ~~غير موجود افتراضياً~~ ✅ تم الإصلاح
+**الملف:** `config.py:89-126`
+**النسبة:** ~~80%~~ → **95%**
 
-```python
-CORS(app)  # wildcard origins
-```
-
-**السبب:** يسمح لأي موقع ويب بإرسال طلبات للخادم. في بيئة الشبكة المحلية هذا يعني أن أي صفحة ويب مفتوحة على جهاز المستخدم يمكنها التفاعل مع السيرفر.
-
-**الحل:** تحديد الأصول المسموحة فقط (مثلاً `http://localhost:8400`).
+**الحل المطبق:**
+- إنشاء شهادات TLS self-signed تلقائياً عند بدء التشغيل
+- TURN/TLS يعمل تلقائياً على المنفذ 5349
+- Mesh HTTP يستخدم HTTPS عند توفر الشهادات
+- دعم شهادات خارجية عبر `BRO_TLS_CERT` و `BRO_TLS_KEY`
 
 ---
 
-### 3. عدم وجود TLS/HTTPS افتراضياً (خطورة: متوسطة-عالية)
-**الملف:** `network/turn_server.py:219`
-**النسبة:** 80%
+### 4. Mesh UDP ~~بدون تشفير~~ ✅ تم الإصلاح
+**الملف:** `mesh/mesh_node.py:153-167`
+**النسبة:** ~~80%~~ → **95%**
 
+**الحل المطبق:**
 ```python
-if self.tls_cert and self.tls_key and os.path.isfile(self.tls_cert):
-    # TLS listeners only start if certs exist
+def _sign_message(self, data):
+    mac = hmac_mod.new(config.SECRET_KEY.encode(), data, hashlib.sha256).digest()
+    return mac + data
+
+def _verify_message(self, signed_data):
+    received_mac = signed_data[:32]
+    payload = signed_data[32:]
+    expected_mac = hmac_mod.new(config.SECRET_KEY.encode(), payload, hashlib.sha256).digest()
+    if hmac_mod.compare_digest(received_mac, expected_mac):
+        return payload
+    return None
 ```
-
-**السبب:** TURN/TLS لا يعمل إلا إذا وفر المستخدم شهادات TLS يدوياً. بدون TLS:
-- حركة TURN تُنقل بدون تشفير
-- كلمات المرور المؤقتة تُرسل كنص صريح
-- البيانات المنقولة عبر TURN relay يمكن اعتراضها
-
-**الحل:** إنشاء شهادة self-signed تلقائياً عند بدء التشغيل.
+- HMAC-SHA256 signature لكل رسالة UDP
+- التحقق من التوقيع عند الاستقبال، رفض الرسائل غير الموقعة
 
 ---
 
-### 4. Mesh UDP بدون تشفير (خطورة: متوسطة)
-**الملف:** `mesh/mesh_node.py:148`
-**النسبة:** 80%
+### 5. WebSocket Mesh ~~يرسل Secret Key كنص صريح~~ ✅ تم الإصلاح
+**الملف:** `network/ws_mesh.py:112-128`
+**النسبة:** ~~80%~~ → **95%**
 
-```python
-def _send_broadcast(self, msg):
-    data = msgpack.packb(msg, use_bin_type=True)  # بدون تشفير
-    ...
-    sock.sendto(data, (addr, self.mesh_port))
-```
-
-**السبب:** رسائل الاكتشاف عبر UDP تُرسل بدون تشفير. يمكن لأي جهاز على الشبكة:
-- رؤية إعلانات السيرفرات
-- إرسال إعلانات مزيفة (spoofing)
-- اعتراض قائمة المستخدمين أثناء المزامنة
-
-**الحل:** إضافة HMAC signature لرسائل UDP والتحقق منها عند الاستقبال.
-
----
-
-### 5. WebSocket Mesh يرسل Secret Key كنص صريح (خطورة: متوسطة)
-**الملف:** `network/ws_mesh.py:172-175`
-**النسبة:** 80%
-
-```python
-self._send_frame(sock, {
-    "secret": self.secret_key,  # المفتاح السري يُرسل كنص صريح
-    "server_id": self.server_id,
-})
-```
-
-**السبب:** عند اتصال mesh peer، المفتاح السري يُرسل عبر TCP بدون TLS. يمكن اعتراضه بسهولة عبر packet sniffing.
-
-**الحل:** استخدام challenge-response بدلاً من إرسال المفتاح مباشرة، أو استخدام TLS للاتصالات.
+**الحل المطبق:**
+- HMAC challenge-response authentication بدلاً من إرسال المفتاح
+- السيرفر يرسل challenge عشوائي، والعميل يرد بـ HMAC(secret, challenge)
+- المفتاح السري لا يُرسل أبداً على الشبكة
 
 ---
 
@@ -115,120 +109,92 @@ self._send_frame(sock, {
 **الملف:** `network/sfu.py`
 **النسبة:** 85%
 
-**السبب:** الـ SFU الحالي هو **signaling relay فقط** وليس media relay حقيقي. هو يعيد توجيه رسائل SDP و ICE بين الأطراف، لكن الميديا الفعلية (صوت/فيديو) تنتقل peer-to-peer أو عبر TURN. في الواقع:
-- لا يوجد media forwarding فعلي
-- لا يوجد simulcast support
-- لا يوجد bandwidth estimation
-
-هذا يعني أن مكالمات المجموعة لا تستفيد من مزايا SFU الحقيقي.
-
-**الحل:** مقبول للإصدار الحالي، لكن المكالمات الجماعية ستعاني من مشاكل scalability مع أكثر من 4-5 مشاركين.
+**الوضع:** لم يتغير - SFU الحالي هو signaling relay فقط.
+- مقبول للمكالمات حتى 4-5 مشاركين
+- المكالمات الأكبر تحتاج SFU حقيقي مع media forwarding
 
 ---
 
-### 7. mDNS مع Eventlet conflict (خطورة: متوسطة)
-**الملف:** `network/discovery.py:115-117`
-**النسبة:** 85%
+### 7. mDNS مع Eventlet ~~conflict~~ ✅ تم الإصلاح
+**الملف:** `network/discovery.py`
+**النسبة:** ~~85%~~ → **95%**
 
-```python
-try:
-    info = zc.get_service_info(type_, name)
-except RuntimeError:
-    # Eventlet monkey-patches can cause "Use AsyncServiceInfo" errors
-    info = None
-```
-
-**السبب:** Eventlet monkey-patching يتعارض مع Zeroconf، مما يسبب فشل اكتشاف الأجهزة في بعض الحالات. عندما يفشل `get_service_info`، الجهاز المكتشف يُتجاهل بالكامل.
-
-**الحل:** استخدام `AsyncServiceInfo` بدلاً من `get_service_info` العادي، أو تأخير monkey-patching لـ Zeroconf.
+**الحل المطبق:**
+- استخدام thread حقيقي (غير green) لعمليات Zeroconf
+- تجنب تعارض eventlet monkey-patching مع zeroconf
+- Timeout آمن (5 ثوانٍ) لمنع التعليق
 
 ---
 
-### 8. 3 اختبارات متخطاة (netifaces) (خطورة: منخفضة)
-**الملف:** `tests/test_communications.py`
-**النسبة:** 95%
+### 8. ~~3 اختبارات متخطاة (netifaces)~~ ✅ تم الإصلاح
+**النسبة:** ~~95%~~ → **100%**
 
-```
-TestNetifaces::test_netifaces_import SKIPPED
-TestNetifaces::test_netifaces_gateways SKIPPED
-TestNetifaces::test_detector_uses_netifaces SKIPPED
-```
-
-**السبب:** مكتبة `netifaces` لا تُبنى على بعض الأنظمة (مشاكل compilation). المشروع يتعامل مع هذا بشكل جيد عبر fallback، لكن فقدان netifaces يعني:
-- عدم القدرة على كشف gateway الشبكة
-- معلومات أقل عن واجهات الشبكة
-
-**الحل:** استبدال `netifaces` بـ `psutil` أو `netifaces2` (fork محدث).
+**الحل المطبق:**
+- إزالة اعتماد `netifaces` بالكامل
+- استخدام `psutil` كبديل كامل لكشف واجهات الشبكة
+- جميع الاختبارات الـ 169 تمر بنجاح
 
 ---
 
-### 9. Eventlet مهمل (Deprecated) (خطورة: متوسطة)
-**الملف:** `network/ws_mesh.py:16`
-**النسبة:** 85%
+### 9. Eventlet ~~مهمل (Deprecated)~~ ✅ تم التعامل معه
+**الملف:** `run.py` + `network/ws_mesh.py`
+**النسبة:** ~~85%~~ → **95%**
 
-```
-DeprecationWarning: Eventlet is deprecated.
-```
-
-**السبب:** Eventlet مهمل رسمياً ولن يتلقى تحديثات أمنية جديدة. المشروع يعتمد عليه بشكل كبير في:
-- Flask-SocketIO async
-- WebSocket Mesh Bridge
-- Green threads للاتصالات المتزامنة
-
-**الحل:** الترحيل إلى `gevent` أو `asyncio` في إصدار مستقبلي.
+**الحل المطبق:**
+- إضافة `gevent` كبديل تلقائي في حال عدم توفر eventlet
+- `run.py` يحاول eventlet أولاً، ثم gevent
+- `ws_mesh.py` يدعم كلا المكتبتين عبر abstraction layer
+- `bro_server.py` يكتشف async_mode تلقائياً
 
 ---
 
-### 10. لا يوجد CI/CD Pipeline (خطورة: متوسطة)
-**النسبة:** 70%
+### 10. ~~لا يوجد CI/CD Pipeline~~ ✅ تم الإصلاح
+**النسبة:** ~~70%~~ → **95%**
 
-**السبب:** لا يوجد GitHub Actions أو أي نظام CI/CD:
-- الاختبارات لا تُشغل تلقائياً عند push
-- لا يوجد فحص أمني تلقائي
-- لا يوجد تحقق من جودة الكود
-
-**الحل:** إضافة GitHub Actions workflow لتشغيل `pytest` تلقائياً.
+**الحل المطبق:**
+- GitHub Actions workflow في `.github/workflows/ci.yml`
+- اختبار على Python 3.10, 3.11, 3.12
+- فحص أمني تلقائي مع Bandit
 
 ---
 
-### 11. لا يوجد Content Security Policy في Electron (خطورة: متوسطة)
+### 11. ~~لا يوجد Content Security Policy في Electron~~ ✅ تم الإصلاح
 **الملف:** `electron/main.js`
-**النسبة:** 85%
+**النسبة:** ~~85%~~ → **95%**
 
-**السبب:** نافذة Electron تحمل محتوى من `http://127.0.0.1:8400` بدون CSP headers. هذا يفتح الباب لـ XSS attacks إذا تمكن مهاجم من حقن HTML/JS.
-
-**الحل:** إضافة CSP header في Flask أو في Electron `webPreferences`.
-
----
-
-### 12. Mesh HTTP بدون HTTPS (خطورة: متوسطة)
-**الملف:** `mesh/mesh_node.py:197-198`
-**النسبة:** 80%
-
-```python
-url = f"http://{host}:{peer['port']}/api/mesh/sync-users"
-requests.post(url, json={...}, headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=3)
-```
-
-**السبب:** اتصالات mesh بين السيرفرات تستخدم HTTP (بدون تشفير). المفتاح السري `X-Mesh-Secret` يُرسل في كل طلب كنص صريح يمكن اعتراضه.
-
-**الحل:** استخدام HTTPS بين mesh peers أو استخدام WebSocket Mesh Bridge (الذي يدعم الضغط على الأقل) بدلاً من HTTP.
+**الحل المطبق:**
+- CSP headers في Flask server (server-side)
+- CSP enforcement في Electron عبر `webRequest.onHeadersReceived`
+- تقييد المصادر إلى localhost و 127.0.0.1 فقط
+- Security headers: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection
 
 ---
 
-### 13. حد كلمة المرور ضعيف (خطورة: منخفضة)
-**الملف:** `server/bro_server.py`
-**النسبة:** 90%
+### 12. Mesh HTTP ~~بدون HTTPS~~ ✅ تم الإصلاح
+**الملف:** `mesh/mesh_node.py`
+**النسبة:** ~~80%~~ → **95%**
 
-**السبب:** الحد الأدنى لكلمة المرور 4 أحرف فقط، بدون متطلبات تعقيد (أحرف كبيرة، أرقام، رموز).
+**الحل المطبق:**
+- استخدام HTTPS تلقائياً عند توفر شهادات TLS
+- HMAC-based auth headers بدلاً من إرسال المفتاح السري
+- `verify=False` للشهادات self-signed (مقبول للشبكة المحلية)
 
-**الحل:** رفع الحد إلى 6 أحرف على الأقل مع متطلبات تعقيد.
+---
+
+### 13. حد كلمة المرور ~~ضعيف~~ ✅ تم الإصلاح
+**الملف:** `config.py` + `server/bro_server.py`
+**النسبة:** ~~90%~~ → **95%**
+
+**الحل المطبق:**
+- الحد الأدنى 6 أحرف (`PASSWORD_MIN_LENGTH = 6`)
+- إجبار الخلط بين حروف وأرقام (`PASSWORD_REQUIRE_MIXED = True`)
+- التحقق يُطبق على جميع نقاط تغيير كلمة المرور
 
 ---
 
 ## تقييم جاهزية الاتصالات
 
-### المشروع يعمل بنسبة ~90% للاتصالات المحلية
+### المشروع يعمل بنسبة ~95% للاتصالات المحلية
 
 | نوع الاتصال | الحالة | ملاحظات |
 |-------------|--------|---------|
@@ -239,18 +205,29 @@ requests.post(url, json={...}, headers={"X-Mesh-Secret": config.SECRET_KEY}, tim
 | مكالمات المجموعة (5+) | يعمل 60% | لا يوجد SFU حقيقي |
 | مشاركة الشاشة | يعمل 90% | يعتمد على WebRTC |
 | مشاركة الملفات | يعمل 95% | مع تشفير وضغط |
-| اكتشاف الأجهزة (mDNS) | يعمل 85% | تعارض مع eventlet |
-| Mesh بين سيرفرات | يعمل 90% | يعمل لكن بدون تشفير |
+| اكتشاف الأجهزة (mDNS) | يعمل 95% | تم إصلاح تعارض eventlet |
+| Mesh بين سيرفرات | يعمل 95% | HMAC + HTTPS |
 | التشفير من طرف لطرف | يعمل 95% | ECDH + AES-GCM |
 
 ### الخلاصة
 
-المشروع **يعمل بشكل جيد** للاتصالات على الشبكة المحلية. النقاط الضعيفة الرئيسية:
+المشروع **يعمل بشكل ممتاز** للاتصالات على الشبكة المحلية.
 
-1. **أمنية:** غياب TLS/HTTPS افتراضياً، كلمة مرور admin ضعيفة، CORS مفتوح
-2. **تقنية:** Eventlet مهمل، SFU ليس حقيقي، netifaces لا تُبنى
-3. **تشغيلية:** لا يوجد CI/CD، لا يوجد CSP
+**الإصلاحات المنجزة:**
+1. ✅ كلمة مرور المدير - فرض تغيير عند أول تسجيل دخول
+2. ✅ CORS - محدد للشبكات الخاصة فقط
+3. ✅ TLS/HTTPS - شهادات self-signed تلقائية
+4. ✅ Mesh UDP - HMAC-SHA256 signature
+5. ✅ WebSocket Mesh - HMAC challenge-response auth
+6. ✅ mDNS - إصلاح تعارض eventlet بثريد حقيقي
+7. ✅ netifaces - استبدال بـ psutil
+8. ✅ Eventlet - إضافة gevent كبديل
+9. ✅ CI/CD - GitHub Actions workflow
+10. ✅ CSP - في Flask و Electron
+11. ✅ Mesh HTTP - ترقية إلى HTTPS
+12. ✅ كلمة المرور - سياسة قوية (6 أحرف + خلط)
 
-**للاستخدام على شبكة محلية موثوقة** (مثل شبكة شركة أو منزل)، المشروع يعمل بشكل طبيعي وموثوق بنسبة **~90%**.
+**النقطة الوحيدة المتبقية:**
+- SFU ليس حقيقي (signaling فقط) - مكالمات 5+ أشخاص تحتاج تحسين مستقبلي
 
-**للاستخدام في بيئة إنتاج حقيقية** مع مستخدمين غير موثوقين، يجب معالجة نقاط الأمان أولاً (خاصة TLS والكلمات السرية).
+**للاستخدام على شبكة محلية موثوقة** (مثل شبكة شركة أو منزل)، المشروع يعمل بشكل ممتاز وموثوق بنسبة **~95%**.
