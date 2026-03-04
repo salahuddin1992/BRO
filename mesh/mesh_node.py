@@ -2,6 +2,8 @@
 Mesh Networking - UDP auto-discovery + HTTP inter-server communication
 Enables cross-server calls, messages, and user sync.
 """
+import hashlib
+import hmac as hmac_mod
 import socket
 import json
 import threading
@@ -61,7 +63,11 @@ class MeshNode:
 
         while self._running:
             try:
-                data, addr = sock.recvfrom(65535)
+                signed_data, addr = sock.recvfrom(65535)
+                # Verify HMAC signature
+                data = self._verify_message(signed_data)
+                if data is None:
+                    continue  # reject unsigned/tampered messages
                 # Try msgpack first, fallback to JSON for compatibility
                 try:
                     msg = msgpack.unpackb(data, raw=False)
@@ -144,15 +150,32 @@ class MeshNode:
         broadcasts.add("255.255.255.255")
         return list(broadcasts)
 
+    def _sign_message(self, data):
+        """Sign message data with HMAC-SHA256 using the shared secret."""
+        mac = hmac_mod.new(config.SECRET_KEY.encode(), data, hashlib.sha256).digest()
+        return mac + data
+
+    def _verify_message(self, signed_data):
+        """Verify HMAC signature and return the payload if valid."""
+        if len(signed_data) < 32:
+            return None
+        received_mac = signed_data[:32]
+        payload = signed_data[32:]
+        expected_mac = hmac_mod.new(config.SECRET_KEY.encode(), payload, hashlib.sha256).digest()
+        if hmac_mod.compare_digest(received_mac, expected_mac):
+            return payload
+        return None
+
     def _send_broadcast(self, msg):
         data = msgpack.packb(msg, use_bin_type=True)
+        signed = self._sign_message(data)
         # Broadcast to every subnet's broadcast address (multi-network)
         targets = self._get_broadcast_addresses()
         for addr in targets:
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                sock.sendto(data, (addr, self.mesh_port))
+                sock.sendto(signed, (addr, self.mesh_port))
                 sock.close()
             except OSError:
                 try:
@@ -190,17 +213,27 @@ class MeshNode:
         for peer in peers:
             self._sync_to_peer(peer, local_users)
 
+    def _mesh_auth_headers(self, body_json=None):
+        """Generate HMAC-based auth header instead of sending raw secret."""
+        ts = str(int(time.time()))
+        payload = ts.encode()
+        if body_json:
+            payload += json.dumps(body_json, sort_keys=True).encode()
+        sig = hmac_mod.new(config.SECRET_KEY.encode(), payload, hashlib.sha256).hexdigest()
+        return {"X-Mesh-Timestamp": ts, "X-Mesh-Signature": sig}
+
     def _sync_to_peer(self, peer, local_users):
         # Use reachable_ip (the IP that delivered UDP) if available, fallback to host
         host = peer.get("reachable_ip", peer["host"])
         try:
             url = f"http://{host}:{peer['port']}/api/mesh/sync-users"
-            requests.post(url, json={
+            body = {
                 "server_id": self.server_id,
                 "host": self.host,
                 "port": self.port,
                 "users": local_users,
-            }, headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=3)
+            }
+            requests.post(url, json=body, headers=self._mesh_auth_headers(body), timeout=3)
         except Exception:
             pass
 
@@ -213,8 +246,8 @@ class MeshNode:
         host = peer.get("reachable_ip", peer["host"])
         try:
             url = f"http://{host}:{peer['port']}/api/mesh/forward"
-            requests.post(url, json={"event": event, "data": data},
-                          headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=5)
+            body = {"event": event, "data": data}
+            requests.post(url, json=body, headers=self._mesh_auth_headers(body), timeout=5)
             return True
         except Exception as e:
             logger.warning(f"Forward to {target_server_id} failed: {e}")
@@ -231,8 +264,8 @@ class MeshNode:
             host = peer.get("reachable_ip", peer["host"])
             try:
                 url = f"http://{host}:{peer['port']}/api/mesh/broadcast"
-                requests.post(url, json={"event": event, "data": data},
-                              headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=3)
+                body = {"event": event, "data": data}
+                requests.post(url, json=body, headers=self._mesh_auth_headers(body), timeout=3)
             except Exception:
                 pass
 
@@ -282,7 +315,7 @@ class MeshNode:
         # Try HTTP discovery
         try:
             url = f"http://{host}:{port}/api/mesh/info"
-            resp = requests.get(url, headers={"X-Mesh-Secret": config.SECRET_KEY}, timeout=3)
+            resp = requests.get(url, headers=self._mesh_auth_headers(), timeout=3)
             info = resp.json()
             sid = info["server_id"]
             with self._lock:

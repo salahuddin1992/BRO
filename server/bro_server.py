@@ -77,7 +77,15 @@ class BROServer:
         )
         self.app.secret_key = config.SECRET_KEY
         self.app.config["MAX_CONTENT_LENGTH"] = config.MAX_FILE_SIZE
-        CORS(self.app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=False)
+        # CORS: restrict to local/private network origins
+        _cors_origins = [
+            r"http://127\.0\.0\.1(:\d+)?",
+            r"http://localhost(:\d+)?",
+            r"http://192\.168\.\d+\.\d+(:\d+)?",
+            r"http://10\.\d+\.\d+\.\d+(:\d+)?",
+            r"http://172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?",
+        ]
+        CORS(self.app, resources={r"/api/*": {"origins": _cors_origins}}, supports_credentials=False)
 
         # Rate Limiter (flask-limiter)
         self.limiter = Limiter(
@@ -105,8 +113,8 @@ class BROServer:
         self.all_ips = self.detector.get_all_ips()
         self.is_fiber = self.detector.has_fiber()
 
-        # SocketIO
-        self.sio = SocketIO(self.app, cors_allowed_origins="*", async_mode="eventlet",
+        # SocketIO (allow private network origins)
+        self.sio = SocketIO(self.app, cors_allowed_origins=_cors_origins, async_mode="eventlet",
                             max_http_buffer_size=10*1024*1024, ping_timeout=60, ping_interval=25)
 
         # Mesh + Signaling (pass all interfaces for multi-network broadcast)
@@ -119,6 +127,8 @@ class BROServer:
         self.turn_server = LocalTurnServer(
             secret_key=config.SECRET_KEY,
             relay_ip=self.host_ip,
+            tls_cert=config.TLS_CERT if config.TLS_AVAILABLE else None,
+            tls_key=config.TLS_KEY if config.TLS_AVAILABLE else None,
         )
 
         # SFU Manager (Selective Forwarding Unit for reliable media relay)
@@ -173,8 +183,25 @@ class BROServer:
         # CSRF protection for admin routes
         self._csrf_tokens = {}  # {token: created_at}
 
+        # Check if admin still uses default password
+        self._admin_needs_pw_change = (
+            not self._admin_pw_hash and config.ADMIN_PASSWORD == "admin123"
+        )
+
         self._setup_routes()
         self._setup_events()
+
+    @staticmethod
+    def _validate_password(pw):
+        """Validate password meets policy. Returns (ok, error_msg)."""
+        if len(pw) < config.PASSWORD_MIN_LENGTH:
+            return False, f"كلمة المرور قصيرة ({config.PASSWORD_MIN_LENGTH} أحرف على الأقل)"
+        if config.PASSWORD_REQUIRE_MIXED:
+            has_letter = any(c.isalpha() for c in pw)
+            has_digit = any(c.isdigit() for c in pw)
+            if not (has_letter and has_digit):
+                return False, "كلمة المرور يجب أن تحتوي على حروف وأرقام"
+        return True, ""
 
     def _gen_token(self, username):
         raw = f"{username}:{config.SECRET_KEY}:{uuid.uuid4().hex}"
@@ -250,6 +277,23 @@ class BROServer:
         return w
 
     def _setup_routes(self):
+        # Security headers (CSP)
+        @self.app.after_request
+        def _set_security_headers(response):
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+            response.headers["X-XSS-Protection"] = "1; mode=block"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data: blob:; "
+                "media-src 'self' blob:; "
+                "connect-src 'self' ws: wss:; "
+                "font-src 'self';"
+            )
+            return response
+
         @self.app.route("/")
         def index():
             return redirect(url_for("client_page"))
@@ -264,6 +308,28 @@ class BROServer:
                 return check_password_hash(self._admin_pw_hash, password)
             return password == config.ADMIN_PASSWORD
 
+        @self.app.route("/admin/change-default-password", methods=["GET", "POST"])
+        def change_default_password():
+            """Force admin to change default password before accessing admin panel."""
+            if not self._admin_needs_pw_change:
+                return redirect(url_for("admin_page"))
+            if request.method == "POST":
+                new_pw = request.form.get("new_password", "")
+                confirm = request.form.get("confirm_password", "")
+                if new_pw != confirm:
+                    return render_template("change_password.html", error="كلمات المرور غير متطابقة")
+                ok, err = self._validate_password(new_pw)
+                if not ok:
+                    return render_template("change_password.html", error=err)
+                pw_hash = generate_password_hash(new_pw)
+                self.db.set_setting("admin_password_hash", pw_hash)
+                self._admin_pw_hash = pw_hash
+                self._admin_needs_pw_change = False
+                session["admin"] = True
+                self._log("Admin changed default password", "warning")
+                return redirect(url_for("admin_page"))
+            return render_template("change_password.html", error=None)
+
         @self.app.route("/login", methods=["GET", "POST"])
         @self.limiter.limit("10 per minute")
         def login():
@@ -274,6 +340,9 @@ class BROServer:
                 self._record_attempt(ip)
                 if (request.form.get("username") == config.ADMIN_USERNAME and
                         _check_admin_pw(request.form.get("password", ""))):
+                    # Force password change if still using default
+                    if self._admin_needs_pw_change:
+                        return redirect(url_for("change_default_password"))
                     session["admin"] = True
                     return redirect(url_for("admin_page"))
                 return render_template("login.html", error="خطأ بالدخول")
@@ -389,8 +458,9 @@ class BROServer:
         def api_reset_password(username):
             data = request.get_json()
             new_pw = data.get("password", "")
-            if len(new_pw) < 4:
-                return jsonify({"error": "كلمة المرور قصيرة"}), 400
+            pw_ok, pw_err = self._validate_password(new_pw)
+            if not pw_ok:
+                return jsonify({"error": pw_err}), 400
             self.db.admin_reset_password(username, new_pw)
             self._log(f"Admin reset password: {username}")
             return jsonify({"status": "ok"})
@@ -933,8 +1003,25 @@ class BROServer:
 
         # --- Mesh Inter-server API ---
         def _check_mesh_secret():
-            token = request.headers.get("X-Mesh-Secret", "")
-            return hmac.compare_digest(token, config.SECRET_KEY)
+            """Verify mesh HMAC signature (no raw secret on the wire)."""
+            sig = request.headers.get("X-Mesh-Signature", "")
+            ts = request.headers.get("X-Mesh-Timestamp", "")
+            if not sig or not ts:
+                # Fallback: legacy raw secret check for backward compat
+                token = request.headers.get("X-Mesh-Secret", "")
+                return hmac.compare_digest(token, config.SECRET_KEY)
+            # Check timestamp freshness (allow 60s drift)
+            try:
+                if abs(time.time() - int(ts)) > 60:
+                    return False
+            except ValueError:
+                return False
+            payload = ts.encode()
+            body = request.get_json(silent=True)
+            if body:
+                payload += json.dumps(body, sort_keys=True).encode()
+            expected = hmac.new(config.SECRET_KEY.encode(), payload, hashlib.sha256).hexdigest()
+            return hmac.compare_digest(sig, expected)
 
         @self.app.route("/api/mesh/info")
         def mesh_info():
@@ -1102,8 +1189,9 @@ class BROServer:
             if not re.match(r'^[\w\u0600-\u06FF\u0750-\u077F\s\-]+$', username):
                 emit("auth_result", {"ok": False, "error": "الاسم يحتوي على رموز غير مسموحة"})
                 return
-            if len(password) < 4:
-                emit("auth_result", {"ok": False, "error": "كلمة المرور قصيرة جداً (4 أحرف على الأقل)"})
+            pw_ok, pw_err = self._validate_password(password)
+            if not pw_ok:
+                emit("auth_result", {"ok": False, "error": pw_err})
                 return
             if self.db.register_user(username, password):
                 token = self._gen_token(username)
@@ -1431,8 +1519,9 @@ class BROServer:
                 return
             old_pw = data.get("old_password", "")
             new_pw = data.get("new_password", "")
-            if len(new_pw) < 4:
-                emit("profile_result", {"ok": False, "error": "كلمة المرور قصيرة (4 أحرف على الأقل)"})
+            pw_ok, pw_err = self._validate_password(new_pw)
+            if not pw_ok:
+                emit("profile_result", {"ok": False, "error": pw_err})
                 return
             if self.db.change_password(username, old_pw, new_pw):
                 emit("profile_result", {"ok": True, "msg": "تم تغيير كلمة المرور"})

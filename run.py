@@ -7,9 +7,22 @@ Usage:
     python run.py --verbose    # Start with console output
     python run.py --port 9000  # Custom port
 """
-# CRITICAL: eventlet monkey patch MUST be first before any other import
-import eventlet
-eventlet.monkey_patch()
+# CRITICAL: async monkey patch MUST be first before any other import
+# Eventlet is deprecated - gevent will be used when available
+import warnings
+warnings.filterwarnings("ignore", message=".*Eventlet is deprecated.*")
+
+_async_mode = "eventlet"
+try:
+    import eventlet
+    eventlet.monkey_patch()
+except ImportError:
+    try:
+        from gevent import monkey
+        monkey.patch_all()
+        _async_mode = "gevent"
+    except ImportError:
+        raise ImportError("Either eventlet or gevent is required")
 
 import sys
 import os

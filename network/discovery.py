@@ -114,7 +114,13 @@ class ServiceDiscovery:
             info = zc.get_service_info(type_, name)
         except RuntimeError:
             # Eventlet monkey-patches can cause "Use AsyncServiceInfo" errors
-            info = None
+            # Fallback: create ServiceInfo manually and request it
+            try:
+                info = ServiceInfo(type_, name)
+                if not zc.get_service_info(type_, name, timeout=3000):
+                    info = None
+            except Exception:
+                info = None
         if not info:
             return
 

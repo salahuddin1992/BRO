@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install flask flask-socketio flask-cors flask-limiter eventlet \
+            cryptography pillow qrcode plyer psutil apscheduler msgpack \
+            zstandard cachetools zeroconf requests aioice pytest blinker
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+
+      - name: Check for security issues
+        run: |
+          pip install bandit
+          bandit -r server/ database/ network/ mesh/ utils/ -ll --skip B101 || true

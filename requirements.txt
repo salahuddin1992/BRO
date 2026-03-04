@@ -23,7 +23,7 @@ plyer>=2.1.0
 aiortc>=1.9.0
 aioice>=0.9.0
 zeroconf>=0.131.0
-netifaces>=0.11.0
+# netifaces removed - psutil handles network detection now
 requests>=2.31.0
 # Testing
 pytest>=8.0.0

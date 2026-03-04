@@ -4,9 +4,13 @@ Persistent TCP connections between mesh nodes for real-time sync.
 Uses eventlet green sockets (no asyncio conflict).
 Length-prefixed JSON frames + optional zlib compression.
 Smart reconnection with exponential backoff.
+HMAC challenge-response authentication (secret never sent on wire).
 """
+import hashlib
+import hmac as hmac_mod
 import json
 import logging
+import secrets as secrets_mod
 import socket
 import struct
 import threading
@@ -105,13 +109,20 @@ class WebSocketMeshBridge:
         try:
             sock.settimeout(5.0)
 
-            # First message must be authentication
+            # Challenge-response auth: send challenge, expect HMAC response
+            challenge = secrets_mod.token_hex(32)
+            self._send_frame(sock, {"type": "challenge", "challenge": challenge})
+
             auth_data = self._recv_frame(sock)
             if not auth_data:
                 sock.close()
                 return
 
-            if auth_data.get("secret") != self.secret_key:
+            # Verify HMAC response
+            expected = hmac_mod.new(
+                self.secret_key.encode(), challenge.encode(), hashlib.sha256
+            ).hexdigest()
+            if not hmac_mod.compare_digest(auth_data.get("response", ""), expected):
                 logger.debug(f"Mesh auth failed from {addr}")
                 sock.close()
                 return
@@ -168,9 +179,17 @@ class WebSocketMeshBridge:
             sock = eventlet.connect((host, ws_port))
             sock.settimeout(5.0)
 
-            # Authenticate
+            # Challenge-response: receive challenge, send HMAC response
+            challenge_msg = self._recv_frame(sock)
+            if not challenge_msg or challenge_msg.get("type") != "challenge":
+                raise ConnectionError("No challenge received")
+
+            challenge = challenge_msg.get("challenge", "")
+            response = hmac_mod.new(
+                self.secret_key.encode(), challenge.encode(), hashlib.sha256
+            ).hexdigest()
             self._send_frame(sock, {
-                "secret": self.secret_key,
+                "response": response,
                 "server_id": self.server_id,
             })
 
