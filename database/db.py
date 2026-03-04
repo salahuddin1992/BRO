@@ -626,9 +626,9 @@ class Database:
             return
         conn = self._get_conn()
         conn.execute(
-            "INSERT INTO user_quotas (username, used_bytes) VALUES (?, ?) "
-            "ON CONFLICT(username) DO UPDATE SET used_bytes = MAX(0, used_bytes + ?)",
-            (username, max(0, size_delta), size_delta))
+            "INSERT INTO user_quotas (username, used_bytes) VALUES (?, MAX(0, ?)) "
+            "ON CONFLICT(username) DO UPDATE SET used_bytes = MAX(0, user_quotas.used_bytes + ?)",
+            (username, size_delta, size_delta))
         conn.commit()
 
     def get_user_quota(self, username):

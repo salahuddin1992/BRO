@@ -109,8 +109,13 @@ class SFUManager:
 
         # Negotiation tracking
         self._pending_negotiations = {}  # {negotiation_id: {offer_sid, answer_sid, state}}
+        self._NEGOTIATION_TIMEOUT = 30  # seconds
 
         self._setup_handlers()
+
+        # Start cleanup thread for stale negotiations
+        t = threading.Thread(target=self._cleanup_loop, daemon=True)
+        t.start()
 
     def _setup_handlers(self):
         """Register SFU-specific Socket.IO events."""
@@ -311,6 +316,18 @@ class SFUManager:
         if room:
             return room.get_stats()
         return None
+
+    def _cleanup_loop(self):
+        """Periodically clean up stale negotiations."""
+        while True:
+            time.sleep(15)
+            now = time.time()
+            stale = [nid for nid, info in self._pending_negotiations.items()
+                     if now - info.get("created_at", 0) > self._NEGOTIATION_TIMEOUT]
+            for nid in stale:
+                self._pending_negotiations.pop(nid, None)
+            if stale:
+                logger.debug(f"Cleaned {len(stale)} stale SFU negotiations")
 
     def get_stats(self):
         """Get overall SFU statistics."""
