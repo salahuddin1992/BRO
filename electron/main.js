@@ -264,6 +264,7 @@ function createWindow() {
             nodeIntegration: false,
             contextIsolation: true,
             spellcheck: true,
+            sandbox: true,
         },
     });
 

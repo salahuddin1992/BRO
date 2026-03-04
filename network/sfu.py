@@ -90,15 +90,11 @@ class SFURoom:
 class SFUManager:
     """Manages SFU rooms and coordinates signaling for SFU-based calls.
 
-    The SFU doesn't process media itself - it coordinates the signaling
-    so that each client creates a peer connection to every other client
-    through the server's relay (TURN), ensuring connectivity.
-
-    For true SFU media forwarding, this generates the signaling messages
-    that instruct clients to:
-    1. Send their upstream media offer to the server
-    2. Receive downstream offers from other participants
-    3. Use TURN relay as the default ICE transport
+    Architecture:
+    - Star topology: each participant connects to every other via TURN relay
+    - Server coordinates: negotiation, dominant speaker, quality hints
+    - Scalability: N connections per participant (not N*(N-1)/2 full mesh)
+    - All connections go through TURN relay for NAT traversal reliability
     """
 
     def __init__(self, sio):
@@ -110,6 +106,10 @@ class SFUManager:
         # Negotiation tracking
         self._pending_negotiations = {}  # {negotiation_id: {offer_sid, answer_sid, state}}
         self._NEGOTIATION_TIMEOUT = 30  # seconds
+
+        # Dominant speaker tracking: {room_id: {sid: audio_level}}
+        self._audio_levels = defaultdict(lambda: defaultdict(float))
+        self._dominant_speaker = {}  # {room_id: sid}
 
         self._setup_handlers()
 
@@ -250,6 +250,48 @@ class SFUManager:
                 room = self._rooms.get(room_id)
                 if room:
                     room.set_upstream_ready(sid)
+
+        @sio.on("sfu_audio_level")
+        def on_audio_level(data):
+            """Client reports audio level for dominant speaker detection."""
+            from flask import request
+            sid = request.sid
+            room_id = self._participant_rooms.get(sid)
+            if not room_id:
+                return
+            level = data.get("level", 0)
+            self._audio_levels[room_id][sid] = level
+            # Determine dominant speaker
+            levels = self._audio_levels[room_id]
+            if levels:
+                dominant = max(levels, key=levels.get)
+                if levels[dominant] > 0.01 and self._dominant_speaker.get(room_id) != dominant:
+                    self._dominant_speaker[room_id] = dominant
+                    room = self._rooms.get(room_id)
+                    if room:
+                        username = room.participants.get(dominant, {}).get("username", "")
+                        sio.emit("sfu_dominant_speaker", {
+                            "sid": dominant,
+                            "username": username,
+                            "room_id": room_id,
+                        }, room=f"sfu_{room_id}")
+
+        @sio.on("sfu_quality_request")
+        def on_quality_request(data):
+            """Client requests quality adjustment (bandwidth adaptation)."""
+            from flask import request
+            sid = request.sid
+            room_id = self._participant_rooms.get(sid)
+            if not room_id:
+                return
+            quality = data.get("quality", "medium")  # low, medium, high
+            target = data.get("target")
+            if target:
+                sio.emit("sfu_quality_hint", {
+                    "quality": quality,
+                    "from_sid": sid,
+                    "room_id": room_id,
+                }, room=target)
 
     def _get_or_create_room(self, room_id):
         """Get or create an SFU room."""

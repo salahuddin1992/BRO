@@ -40,6 +40,10 @@ SECRET_KEY = _load_or_create_secret()
 ADMIN_USERNAME = os.environ.get("BRO_ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.environ.get("BRO_ADMIN_PASS", "admin123")
 
+# Password policy
+PASSWORD_MIN_LENGTH = 6
+PASSWORD_REQUIRE_MIXED = True  # require letters + digits
+
 # Mesh
 MESH_PORT = 8401
 MESH_MAX_SERVERS = 100
@@ -77,6 +81,49 @@ FIBER_TYPES = {
     "ONU": "Optical Network Unit",
     "OLT": "Optical Line Terminal",
 }
+
+# TLS (auto-generated self-signed if not provided)
+TLS_CERT = os.environ.get("BRO_TLS_CERT", os.path.join(RUNTIME_PATH, "tls_cert.pem"))
+TLS_KEY = os.environ.get("BRO_TLS_KEY", os.path.join(RUNTIME_PATH, "tls_key.pem"))
+
+def _ensure_tls_certs():
+    """Auto-generate self-signed TLS certs if they don't exist."""
+    if os.path.isfile(TLS_CERT) and os.path.isfile(TLS_KEY):
+        return True
+    try:
+        from cryptography import x509
+        from cryptography.x509.oid import NameOID
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        import datetime, ipaddress
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        subject = issuer = x509.Name([
+            x509.NameAttribute(NameOID.COMMON_NAME, "Helen WiFi Local"),
+        ])
+        cert = (x509.CertificateBuilder()
+                .subject_name(subject)
+                .issuer_name(issuer)
+                .public_key(key.public_key())
+                .serial_number(x509.random_serial_number())
+                .not_valid_before(datetime.datetime.utcnow())
+                .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=365))
+                .add_extension(x509.SubjectAlternativeName([
+                    x509.DNSName("localhost"),
+                    x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+                ]), critical=False)
+                .sign(key, hashes.SHA256()))
+        with open(TLS_KEY, "wb") as f:
+            f.write(key.private_bytes(serialization.Encoding.PEM,
+                                       serialization.PrivateFormat.TraditionalOpenSSL,
+                                       serialization.NoEncryption()))
+        os.chmod(TLS_KEY, 0o600)
+        with open(TLS_CERT, "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+        return True
+    except Exception:
+        return False
+
+TLS_AVAILABLE = _ensure_tls_certs()
 
 # Logging
 LOG_LEVEL = os.environ.get("BRO_LOG_LEVEL", "INFO")

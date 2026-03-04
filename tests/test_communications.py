@@ -105,29 +105,25 @@ class TestWebSocketMeshBridge:
         assert bridge.is_peer_connected("unknown") is False
 
 
-class TestNetifaces:
-    def test_netifaces_import(self):
-        try:
-            import netifaces
-            interfaces = netifaces.interfaces()
-            assert isinstance(interfaces, list)
-            assert len(interfaces) > 0  # At least loopback
-        except ImportError:
-            pytest.skip("netifaces not available on this platform")
+class TestPsutilNetworkDetection:
+    def test_psutil_import(self):
+        import psutil
+        addrs = psutil.net_if_addrs()
+        assert isinstance(addrs, dict)
+        assert len(addrs) > 0  # At least loopback
 
-    def test_netifaces_gateways(self):
-        try:
-            import netifaces
-            gateways = netifaces.gateways()
-            assert isinstance(gateways, dict)
-        except ImportError:
-            pytest.skip("netifaces not available on this platform")
+    def test_psutil_net_if_stats(self):
+        import psutil
+        stats = psutil.net_if_stats()
+        assert isinstance(stats, dict)
+        assert len(stats) > 0
 
-    def test_detector_uses_netifaces(self):
-        from network.detector import _netifaces_available
-        # netifaces is optional - detector has fallback to subprocess
-        if not _netifaces_available:
-            pytest.skip("netifaces not available, detector uses subprocess fallback")
+    def test_detector_uses_psutil(self):
+        """Verify detector uses psutil instead of netifaces."""
+        import inspect
+        from network.detector import NetworkDetector
+        source = inspect.getsource(NetworkDetector)
+        assert "psutil" in source
 
 
 class TestRequestsLibrary:
@@ -146,7 +142,7 @@ class TestRequestsLibrary:
 
 
 class TestNetworkDetector:
-    def test_netifaces_detection(self):
+    def test_psutil_detection(self):
         from network.detector import NetworkDetector
 
         detector = NetworkDetector()
