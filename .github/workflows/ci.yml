@@ -20,13 +20,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
-          pip install flask flask-socketio flask-cors flask-limiter eventlet \
-            cryptography pillow qrcode plyer psutil apscheduler msgpack \
-            zstandard cachetools zeroconf requests aioice pytest blinker
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip check
 
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
