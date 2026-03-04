@@ -49,6 +49,14 @@ def init_scheduler(db, upload_folder, backup_dir):
         id="cleanup_sessions", replace_existing=True,
     )
 
+    # Cleanup stale chunk upload directories every 2 hours
+    chunk_folder = os.path.join(upload_folder, "_chunks")
+    _scheduler.add_job(
+        _cleanup_stale_chunks, "interval", hours=2,
+        args=[chunk_folder],
+        id="cleanup_chunks", replace_existing=True,
+    )
+
     _scheduler.start()
     logger.info("Scheduler started with auto-backup, cleanup tasks")
     return _scheduler
@@ -129,6 +137,26 @@ def _cleanup_expired_files(db, upload_folder):
             logger.info(f"Expired files cleanup: removed {len(expired)} files")
     except Exception as e:
         logger.warning(f"Expired files cleanup error: {e}")
+
+
+def _cleanup_stale_chunks(chunk_folder):
+    """Remove chunk directories older than 6 hours (incomplete uploads)."""
+    if not os.path.isdir(chunk_folder):
+        return
+    import shutil
+    cutoff = time.time() - 6 * 3600  # 6 hours
+    removed = 0
+    for entry in os.listdir(chunk_folder):
+        entry_path = os.path.join(chunk_folder, entry)
+        if os.path.isdir(entry_path):
+            try:
+                if os.path.getmtime(entry_path) < cutoff:
+                    shutil.rmtree(entry_path, ignore_errors=True)
+                    removed += 1
+            except OSError:
+                pass
+    if removed:
+        logger.info(f"Chunks cleanup: removed {removed} stale upload directories")
 
 
 def _cleanup_expired_sessions(db):
