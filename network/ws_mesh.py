@@ -19,6 +19,8 @@ import zlib
 
 # Support both eventlet and gevent
 try:
+    import warnings as _warnings
+    _warnings.filterwarnings("ignore", message=".*Eventlet is deprecated.*")
     import eventlet
     _green = eventlet
     _green_spawn = eventlet.spawn

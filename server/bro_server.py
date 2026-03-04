@@ -45,6 +45,7 @@ from utils.compression import should_compress, compress_file
 from utils.notifications import (notify_server_started, notify_new_message,
                                  notify_incoming_call, notify_file_shared)
 from utils.crypto import encrypt_file as crypto_encrypt_file, decrypt_file as crypto_decrypt_file
+from markupsafe import escape as html_escape
 
 # python-magic: try import, fallback gracefully
 try:
@@ -77,13 +78,19 @@ class BROServer:
         )
         self.app.secret_key = config.SECRET_KEY
         self.app.config["MAX_CONTENT_LENGTH"] = config.MAX_FILE_SIZE
-        # CORS: restrict to local/private network origins
+        # Session security: expire after 24 hours, secure cookies when HTTPS
+        self.app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours
+        self.app.config["SESSION_COOKIE_HTTPONLY"] = True
+        self.app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+        if config.TLS_AVAILABLE:
+            self.app.config["SESSION_COOKIE_SECURE"] = True
+        # CORS: restrict to local/private network origins (HTTP + HTTPS)
         _cors_origins = [
-            r"http://127\.0\.0\.1(:\d+)?",
-            r"http://localhost(:\d+)?",
-            r"http://192\.168\.\d+\.\d+(:\d+)?",
-            r"http://10\.\d+\.\d+\.\d+(:\d+)?",
-            r"http://172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?",
+            r"https?://127\.0\.0\.1(:\d+)?",
+            r"https?://localhost(:\d+)?",
+            r"https?://192\.168\.\d+\.\d+(:\d+)?",
+            r"https?://10\.\d+\.\d+\.\d+(:\d+)?",
+            r"https?://172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?",
         ]
         CORS(self.app, resources={r"/api/*": {"origins": _cors_origins}}, supports_credentials=False)
 
@@ -348,6 +355,7 @@ class BROServer:
                     # Force password change if still using default
                     if self._admin_needs_pw_change:
                         return redirect(url_for("change_default_password"))
+                    session.permanent = True
                     session["admin"] = True
                     return redirect(url_for("admin_page"))
                 return render_template("login.html", error="خطأ بالدخول")
@@ -676,8 +684,13 @@ class BROServer:
             if _magic_available:
                 try:
                     mime = magic.from_file(save_path, mime=True)
-                    dangerous_mimes = {"application/x-executable", "application/x-dosexec",
-                                       "application/x-sharedlib", "application/x-mach-binary"}
+                    dangerous_mimes = {
+                        "application/x-executable", "application/x-dosexec",
+                        "application/x-sharedlib", "application/x-mach-binary",
+                        "application/x-msdos-program", "application/x-msdownload",
+                        "application/x-elf", "application/x-shellscript",
+                        "application/x-bat", "application/x-msi",
+                    }
                     if mime in dangerous_mimes:
                         os.remove(save_path)
                         return jsonify({"error": "نوع الملف غير مسموح (ملف تنفيذي)"}), 400
@@ -1430,10 +1443,13 @@ class BROServer:
                 return
             if len(text) > self._MAX_MSG_LEN:
                 text = text[:self._MAX_MSG_LEN]
+            # Sanitize HTML to prevent XSS (skip for encrypted messages)
+            encrypted = data.get("encrypted", False)
+            if not encrypted:
+                text = str(html_escape(text))
             target_user = data.get("target_user")
             room_id = data.get("room_id")
             reply_to = data.get("reply_to")
-            encrypted = data.get("encrypted", False)
 
             if room_id:
                 members = self.db.get_room_members(room_id)
@@ -1879,7 +1895,8 @@ class BROServer:
         self.ws_mesh.start(on_message=_on_ws_message)
 
         # Generate QR code for easy connection
-        client_url = f"http://{self.host_ip}:{port}/client"
+        scheme = "https" if config.TLS_AVAILABLE else "http"
+        client_url = f"{scheme}://{self.host_ip}:{port}/client"
         self._qr_b64 = generate_qr_code(client_url)
         self._log("QR code generated for client connection")
 
@@ -1895,28 +1912,42 @@ class BROServer:
                 net_lines += f"    {iface['name']:12s} {iface['ip']:16s} ({iface['type']})\n"
             if not net_lines:
                 net_lines = f"    {'auto':12s} {self.host_ip:16s}\n"
+            tls_status = "Yes (auto-generated)" if config.TLS_AVAILABLE else "No"
+            sfu_mode = "Real SFU (aiortc)" if self.sfu.has_media_relay else "Signaling Relay"
             print(f"""
   Helen WiFi - هيلين WiFi (LAN Only / Multi-Network)
   Server ID : {self.server_id}
   Primary IP: {self.host_ip}:{port}
   Networks  :
 {net_lines}  Fiber     : {'Yes' if self.is_fiber else 'No'}
+  TLS/HTTPS : {tls_status}
   Database  : {config.DB_PATH}
-  Client    : http://{self.host_ip}:{port}/client
-  Admin     : http://{self.host_ip}:{port}/admin
-  QR Code   : http://{self.host_ip}:{port}/api/qr-code
+  Client    : {scheme}://{self.host_ip}:{port}/client
+  Admin     : {scheme}://{self.host_ip}:{port}/admin
+  QR Code   : {scheme}://{self.host_ip}:{port}/api/qr-code
   STUN/TURN : stun:{self.host_ip}:3478 | turn:UDP/TCP:3478
-  SFU       : Active (relay media server)
-  Diagnostics: http://{self.host_ip}:{port}/api/rtc/diagnostics
+  SFU       : {sfu_mode}
+  Diagnostics: {scheme}://{self.host_ip}:{port}/api/rtc/diagnostics
   WS Mesh   : ws://{self.host_ip}:{port + 2}
   mDNS      : Active (auto-discovery on all networks)
 """)
 
         if getattr(sys, 'frozen', False):
-            threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}/client")).start()
+            threading.Timer(1.5, lambda: webbrowser.open(f"{scheme}://127.0.0.1:{port}/client")).start()
+
+        # Use HTTPS if TLS certificates are available
+        ssl_kwargs = {}
+        if config.TLS_AVAILABLE:
+            import ssl
+            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(config.TLS_CERT, config.TLS_KEY)
+            ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            ssl_kwargs["ssl_context"] = ssl_ctx
+            self._log("HTTPS enabled with TLS certificates")
 
         try:
-            self.sio.run(self.app, host=host, port=port, debug=False, log_output=not silent)
+            self.sio.run(self.app, host=host, port=port, debug=False,
+                         log_output=not silent, **ssl_kwargs)
         finally:
             self.turn_server.stop()
             self.discovery.stop()
