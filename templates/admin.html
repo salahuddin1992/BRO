@@ -111,6 +111,7 @@ th { color:var(--dim); font-weight:500; }
     <div class="nav" onclick="show('clients')"><span data-i18n="clients">العملاء</span></div>
     <div class="nav" onclick="show('net')"><span data-i18n="network">الشبكة</span></div>
     <div class="nav" onclick="show('mesh')"><span>Mesh</span></div>
+    <div class="nav" onclick="show('protocols')"><span>SSH/FTP/SFTP</span></div>
     <div class="nav" onclick="show('fiber')"><span data-i18n="routers">الراوترات</span></div>
     <div class="nav" onclick="show('backup')"><span data-i18n="backup">النسخ الاحتياطي</span></div>
     <div class="nav" onclick="show('recordings')"><span data-i18n="recordings">التسجيلات</span></div>
@@ -228,6 +229,54 @@ th { color:var(--dim); font-weight:500; }
         <table><thead><tr><th>المعرف</th><th>IP</th><th>المنفذ</th><th>المستخدمون</th><th>آخر ظهور</th></tr></thead><tbody id="tMesh"></tbody></table>
         <div class="ptitle" style="margin-top:16px">المستخدمون البعيدون</div>
         <table><thead><tr><th>المستخدم</th><th>السيرفر</th></tr></thead><tbody id="tRemUsers"></tbody></table></div>
+    </div>
+
+    <!-- SSH / FTP / SFTP -->
+    <div class="sec" id="s-protocols">
+        <div class="stats">
+            <div class="stat"><div class="lbl">SSH</div><div class="val" id="vSSH" style="font-size:.9em">--</div></div>
+            <div class="stat"><div class="lbl">FTP</div><div class="val" id="vFTP" style="font-size:.9em">--</div></div>
+            <div class="stat"><div class="lbl">SFTP</div><div class="val" id="vSFTP" style="font-size:.9em">--</div></div>
+        </div>
+        <div class="two">
+            <div class="panel">
+                <div class="ptitle">SSH - اتصال طرفية عن بُعد (مشفر)</div>
+                <table>
+                    <thead><tr><th>الحالة</th><th>المنفذ</th><th>الاتصالات</th></tr></thead>
+                    <tbody id="tSSH"><tr><td colspan="3" style="text-align:center;color:var(--dim)">جاري التحميل...</td></tr></tbody>
+                </table>
+                <div class="ptitle" style="margin-top:12px">المتصلون عبر SSH</div>
+                <table>
+                    <thead><tr><th>المستخدم</th><th>IP</th></tr></thead>
+                    <tbody id="tSSHConn"></tbody>
+                </table>
+            </div>
+            <div class="panel">
+                <div class="ptitle">SFTP - نقل ملفات مشفر عبر SSH</div>
+                <table>
+                    <thead><tr><th>الحالة</th><th>المنفذ</th><th>الاتصالات</th></tr></thead>
+                    <tbody id="tSFTP"><tr><td colspan="3" style="text-align:center;color:var(--dim)">جاري التحميل...</td></tr></tbody>
+                </table>
+                <div class="ptitle" style="margin-top:12px">المتصلون عبر SFTP</div>
+                <table>
+                    <thead><tr><th>المستخدم</th><th>IP</th></tr></thead>
+                    <tbody id="tSFTPConn"></tbody>
+                </table>
+            </div>
+        </div>
+        <div class="panel" style="margin-top:12px">
+            <div class="ptitle">FTP - نقل ملفات (غير مشفر)</div>
+            <table>
+                <thead><tr><th>الحالة</th><th>المنفذ</th><th>الاتصالات</th></tr></thead>
+                <tbody id="tFTP"><tr><td colspan="3" style="text-align:center;color:var(--dim)">جاري التحميل...</td></tr></tbody>
+            </table>
+            <div class="ptitle" style="margin-top:12px">المتصلون عبر FTP</div>
+            <table>
+                <thead><tr><th>المستخدم</th><th>IP</th></tr></thead>
+                <tbody id="tFTPConn"></tbody>
+            </table>
+            <p style="color:var(--orange);font-size:.8em;margin-top:8px">⚠ FTP غير مشفر - استخدم SFTP للاتصال الآمن</p>
+        </div>
     </div>
 
     <!-- Fiber Routers -->
@@ -440,6 +489,29 @@ async function refresh(){
             document.getElementById('tFiber').innerHTML = Object.entries(d.fiber_types).map(([k,v])=>
                 `<tr><td><span class="badge badge-f">${k}</span></td><td>${esc(v)}</td></tr>`).join('');
         }
+
+        // SSH / FTP / SFTP
+        function renderProtoStatus(prefix, data) {
+            let statusEl = document.getElementById('v'+prefix.toUpperCase());
+            let tableEl = document.getElementById('t'+prefix.toUpperCase());
+            let connEl = document.getElementById('t'+prefix.toUpperCase()+'Conn');
+            if (!data) return;
+            let badge = !data.available ? '<span class="badge" style="background:rgba(255,255,255,0.06);color:var(--dim)">غير مثبت</span>'
+                : data.running ? '<span class="badge badge-g">يعمل</span>'
+                : '<span class="badge badge-r">متوقف</span>';
+            if (statusEl) statusEl.innerHTML = badge;
+            if (tableEl) tableEl.innerHTML = `<tr><td>${badge}</td><td style="direction:ltr">${data.port}</td>
+                <td><span class="badge badge-b">${data.connection_count||0}</span></td></tr>`;
+            if (connEl) {
+                let conns = data.connections || [];
+                connEl.innerHTML = conns.length ? conns.map(c=>
+                    `<tr><td>${esc(c.username||'--')}</td><td style="direction:ltr">${esc(c.ip||'--')}</td></tr>`).join('')
+                    : '<tr><td colspan="2" style="text-align:center;color:var(--dim)">لا يوجد متصلون</td></tr>';
+            }
+        }
+        renderProtoStatus('SSH', d.ssh);
+        renderProtoStatus('FTP', d.ftp);
+        renderProtoStatus('SFTP', d.sftp);
 
         // Logs
         document.getElementById('logBox').innerHTML = d.logs.map(l=>{

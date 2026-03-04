@@ -45,7 +45,7 @@ PASSWORD_MIN_LENGTH = 6
 PASSWORD_REQUIRE_MIXED = True  # require letters + digits
 
 # ──────────────────────────────────────────────────────────
-# Connection Types Between Servers (Server-to-Server Mesh)
+# Connection Types Between Servers
 # ──────────────────────────────────────────────────────────
 # Protocol        | Port  | Transport | Description
 # ────────────────┼───────┼───────────┼──────────────────────────────────────
@@ -68,6 +68,25 @@ PASSWORD_REQUIRE_MIXED = True  # require letters + digits
 #                 |       |           | - /api/mesh/info        (peer metadata)
 #                 |       |           | - Auto TLS (self-signed certs)
 # ────────────────┼───────┼───────────┼──────────────────────────────────────
+# SSH             | 2222  | TCP       | Remote terminal access (encrypted)
+#                 |       |           | - Auth via Helen WiFi user database
+#                 |       |           | - Admin/moderator only
+#                 |       |           | - Server management commands
+#                 |       |           | - Requires: paramiko
+# ────────────────┼───────┼───────────┼──────────────────────────────────────
+# FTP             | 2121  | TCP       | File transfer (unencrypted)
+#                 |       |           | - Auth via Helen WiFi user database
+#                 |       |           | - Browse/upload/download files
+#                 |       |           | - Anonymous read-only access
+#                 |       |           | - Passive ports: 60000-60100
+#                 |       |           | - Requires: pyftpdlib
+# ────────────────┼───────┼───────────┼──────────────────────────────────────
+# SFTP            | 2223  | TCP       | Secure file transfer via SSH (encrypted)
+#                 |       |           | - Auth via Helen WiFi user database
+#                 |       |           | - Browse/upload/download files
+#                 |       |           | - Path traversal protection
+#                 |       |           | - Requires: paramiko
+# ────────────────┼───────┼───────────┼──────────────────────────────────────
 # mDNS/DNS-SD    | 5353  | UDP       | Zeroconf service discovery
 #                 |       |           | - Service: _helenwifi._tcp.local.
 #                 |       |           | - Auto peer detection on LAN
@@ -80,13 +99,24 @@ PASSWORD_REQUIRE_MIXED = True  # require letters + digits
 #                 |       |           | - Chat, calls, file transfer events
 #                 |       |           | - WebRTC offer/answer/ICE exchange
 # ──────────────────────────────────────────────────────────
-# NOTE: This project does NOT use SFTP, FTP, or SSH.
-#       All connections are over the protocols listed above.
-# ──────────────────────────────────────────────────────────
 
 # Mesh
 MESH_PORT = 8401
 MESH_MAX_SERVERS = 100
+
+# SSH Server (remote terminal access - admin/moderator only)
+SSH_ENABLED = os.environ.get("BRO_SSH_ENABLED", "1") == "1"
+SSH_PORT = int(os.environ.get("BRO_SSH_PORT", 2222))
+SSH_HOST_KEY = os.path.join(RUNTIME_PATH, "ssh_host_key")
+
+# FTP Server (file transfer - unencrypted)
+FTP_ENABLED = os.environ.get("BRO_FTP_ENABLED", "1") == "1"
+FTP_PORT = int(os.environ.get("BRO_FTP_PORT", 2121))
+
+# SFTP Server (secure file transfer via SSH)
+SFTP_ENABLED = os.environ.get("BRO_SFTP_ENABLED", "1") == "1"
+SFTP_PORT = int(os.environ.get("BRO_SFTP_PORT", 2223))
+SFTP_HOST_KEY = os.path.join(RUNTIME_PATH, "sftp_host_key")
 
 # Files
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
