@@ -195,14 +195,18 @@ class BROServer:
         self._tokens_lock = threading.Lock()
         self.auth_tokens = {}   # {token: {username, created_at}}  - session persistence
         self._TOKEN_TTL = 7 * 24 * 3600  # 7 days
+        self._logs_lock = threading.Lock()
         self.logs = []
+        self._typing_lock = threading.Lock()
         self.typing_state = {}  # {sid: {target, username, timestamp}}
         self._MAX_MSG_LEN = 5000  # max message length in characters
 
         # Chat message rate limiting: {sid: [timestamps]}
+        self._rate_lock = threading.Lock()
         self._msg_rate = defaultdict(list)
         self._MSG_RATE_MAX = 10   # max messages per window
         self._MSG_RATE_WINDOW = 2  # 2-second window
+        self._MAX_CONNECTIONS = 500  # max simultaneous WebSocket connections
 
         # Backup directory
         self.backup_dir = os.path.join(config.RUNTIME_PATH, "backups")
@@ -223,11 +227,13 @@ class BROServer:
         self._scheduler = None
 
         # Brute force protection: {ip: [timestamps]}
+        self._auth_lock = threading.Lock()
         self._auth_attempts = defaultdict(list)
         self._AUTH_MAX = 5          # max attempts
         self._AUTH_WINDOW = 60      # per 60 seconds
 
         # CSRF protection for admin routes
+        self._csrf_lock = threading.Lock()
         self._csrf_tokens = {}  # {token: created_at}
 
         # Check if admin still uses default password
@@ -286,37 +292,40 @@ class BROServer:
             return info["username"]
 
     def _check_rate(self, ip):
-        now = time.time()
-        attempts = self._auth_attempts[ip]
-        self._auth_attempts[ip] = [t for t in attempts if now - t < self._AUTH_WINDOW]
-        return len(self._auth_attempts[ip]) < self._AUTH_MAX
+        with self._auth_lock:
+            now = time.time()
+            attempts = self._auth_attempts[ip]
+            self._auth_attempts[ip] = [t for t in attempts if now - t < self._AUTH_WINDOW]
+            return len(self._auth_attempts[ip]) < self._AUTH_MAX
 
     def _record_attempt(self, ip):
-        self._auth_attempts[ip].append(time.time())
+        with self._auth_lock:
+            self._auth_attempts[ip].append(time.time())
 
     def _check_msg_rate(self, sid):
         """Rate-limit chat messages per session (prevent spam)."""
-        now = time.time()
-        self._msg_rate[sid] = [t for t in self._msg_rate[sid] if now - t < self._MSG_RATE_WINDOW]
-        if len(self._msg_rate[sid]) >= self._MSG_RATE_MAX:
-            return False
-        self._msg_rate[sid].append(now)
-        return True
+        with self._rate_lock:
+            now = time.time()
+            self._msg_rate[sid] = [t for t in self._msg_rate[sid] if now - t < self._MSG_RATE_WINDOW]
+            if len(self._msg_rate[sid]) >= self._MSG_RATE_MAX:
+                return False
+            self._msg_rate[sid].append(now)
+            return True
 
     def _cleanup_rate_limit_entries(self):
         """Remove stale entries from _auth_attempts and _msg_rate."""
         now = time.time()
-        # Cleanup auth attempts older than window
-        stale_ips = [ip for ip, times in self._auth_attempts.items()
-                     if not any(now - t < self._AUTH_WINDOW for t in times)]
-        for ip in stale_ips:
-            del self._auth_attempts[ip]
-        # Cleanup msg rate for disconnected sids
+        with self._auth_lock:
+            stale_ips = [ip for ip, times in self._auth_attempts.items()
+                         if not any(now - t < self._AUTH_WINDOW for t in times)]
+            for ip in stale_ips:
+                del self._auth_attempts[ip]
         with self._clients_lock:
             active_sids = set(self.clients.keys())
-        stale_sids = [sid for sid in self._msg_rate if sid not in active_sids]
-        for sid in stale_sids:
-            del self._msg_rate[sid]
+        with self._rate_lock:
+            stale_sids = [sid for sid in self._msg_rate if sid not in active_sids]
+            for sid in stale_sids:
+                del self._msg_rate[sid]
 
     def _cleanup_stale_connections(self):
         """Remove connections that have been unauthenticated for too long."""
@@ -333,34 +342,38 @@ class BROServer:
                         age = (datetime.utcnow() - ca).total_seconds()
                         if age > stale_timeout:
                             stale_sids.append(sid)
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"Stale connection check error for {sid}: {e}")
         for sid in stale_sids:
             try:
                 self.sio.disconnect(sid)
-                self.clients.pop(sid, None)
-            except Exception:
-                pass
+                with self._clients_lock:
+                    self.clients.pop(sid, None)
+            except Exception as e:
+                logger.debug(f"Failed to disconnect stale session {sid}: {e}")
 
     def _log(self, msg, level="info"):
-        self.logs.append({"time": datetime.utcnow().isoformat(), "level": level, "message": msg})
-        if len(self.logs) > 500:
-            self.logs = self.logs[-500:]
+        with self._logs_lock:
+            self.logs.append({"time": datetime.utcnow().isoformat(), "level": level, "message": msg})
+            if len(self.logs) > 500:
+                self.logs = self.logs[-500:]
 
     def _gen_csrf(self):
         token = secrets.token_hex(32)
-        self._csrf_tokens[token] = time.time()
-        # Cleanup old tokens (>4 hours)
-        cutoff = time.time() - 4 * 3600
-        self._csrf_tokens = {t: ts for t, ts in self._csrf_tokens.items() if ts > cutoff}
+        with self._csrf_lock:
+            self._csrf_tokens[token] = time.time()
+            # Cleanup old tokens (>4 hours)
+            cutoff = time.time() - 4 * 3600
+            self._csrf_tokens = {t: ts for t, ts in self._csrf_tokens.items() if ts > cutoff}
         return token
 
     def _check_csrf(self):
         token = (request.headers.get("X-CSRF-Token") or
                  request.form.get("_csrf") or
                  (request.get_json(silent=True) or {}).get("_csrf", ""))
-        if token and token in self._csrf_tokens:
-            return True
+        with self._csrf_lock:
+            if token and token in self._csrf_tokens:
+                return True
         return False
 
     def _require_admin(self, f):
@@ -571,7 +584,7 @@ class BROServer:
                 "signaling": self.signaling.get_stats(),
                 "fiber_types": config.FIBER_TYPES,
                 "recordings_count": self.db.count_recordings(),
-                "logs": self.logs[-50:],
+                "logs": list(self.logs[-50:]),
                 "system": get_system_stats(),
                 "process": get_process_stats(),
                 "discovery": {
@@ -867,12 +880,13 @@ class BROServer:
                     if mime in dangerous_mimes:
                         os.remove(save_path)
                         return jsonify({"error": "نوع الملف غير مسموح (ملف تنفيذي)"}), 400
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"MIME validation failed for {safe}: {e}")
             size = os.path.getsize(save_path)
-            if size > 100 * 1024 * 1024:
-                os.remove(os.path.join(config.UPLOAD_FOLDER, name))
-                return jsonify({"error": "حجم الملف كبير جداً (100MB كحد أقصى)"}), 400
+            if size > config.MAX_FILE_SIZE:
+                os.remove(save_path)
+                max_mb = config.MAX_FILE_SIZE // (1024 * 1024)
+                return jsonify({"error": f"حجم الملف كبير جداً ({max_mb}MB كحد أقصى)"}), 400
             uploaded_by = uploader
             room_id = request.form.get("room_id", type=int)
             target_user = request.form.get("target_user")
@@ -908,8 +922,10 @@ class BROServer:
                     crypto_encrypt_file(key, save_path, enc_path)
                     os.replace(enc_path, save_path)
                     encrypted = True
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.error(f"File encryption failed for {safe}: {e}")
+                    os.remove(save_path)
+                    return jsonify({"error": "فشل تشفير الملف، لم يتم الرفع"}), 500
             # TTL / expiration
             expires_at = None
             ttl_hours = request.form.get("ttl_hours", type=int)
@@ -1165,8 +1181,10 @@ class BROServer:
                         crypto_encrypt_file(key, save_path, enc_path)
                         os.replace(enc_path, save_path)
                         encrypted = True
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.error(f"Chunked upload encryption failed for {safe}: {e}")
+                        os.remove(save_path)
+                        return jsonify({"error": "فشل تشفير الملف، لم يتم الرفع"}), 500
                 # TTL / expiration
                 expires_at = None
                 ttl_hours = request.form.get("ttl_hours", type=int)
@@ -1348,6 +1366,9 @@ class BROServer:
         def on_connect():
             sid = request.sid
             with self._clients_lock:
+                if len(self.clients) >= self._MAX_CONNECTIONS:
+                    logger.warning(f"Connection rejected: max connections ({self._MAX_CONNECTIONS}) reached")
+                    return False  # reject connection
                 self.clients[sid] = {
                     "sid": sid, "username": None,
                     "ip": request.remote_addr,
@@ -1396,7 +1417,8 @@ class BROServer:
             self.signaling.handle_disconnect(sid, username=name)
             self.sfu.handle_disconnect(sid)
             # Notify typing recipients that this user stopped typing
-            ts = self.typing_state.pop(sid, None)
+            with self._typing_lock:
+                ts = self.typing_state.pop(sid, None)
             if ts and name:
                 target_sid = ts.get("target_sid")
                 room_id = ts.get("room_id")
@@ -1795,7 +1817,8 @@ class BROServer:
                 return
             target_sid = data.get("target_sid")
             room_id = data.get("room_id")
-            self.typing_state[sid] = {"target_sid": target_sid, "room_id": room_id}
+            with self._typing_lock:
+                self.typing_state[sid] = {"target_sid": target_sid, "room_id": room_id}
             if target_sid and target_sid in self.clients:
                 self.sio.emit("user_typing", {"username": username, "room_id": None}, room=target_sid)
             elif room_id:
@@ -1811,7 +1834,8 @@ class BROServer:
             username = client.get("username")
             if not username:
                 return
-            self.typing_state.pop(sid, None)
+            with self._typing_lock:
+                self.typing_state.pop(sid, None)
             target_sid = data.get("target_sid")
             room_id = data.get("room_id")
             if target_sid and target_sid in self.clients:
@@ -1826,6 +1850,9 @@ class BROServer:
         @self.sio.on("chat_message")
         def on_msg(data):
             sid = request.sid
+            # Validate incoming data size to prevent DoS
+            if not isinstance(data, dict):
+                return
             client = self.clients.get(sid, {})
             sender = client.get("username")
             if not sender:
@@ -2409,10 +2436,13 @@ class BROServer:
             self.turn_server.stop()
             self.discovery.stop()
             self.ws_mesh.stop()
+            self.mesh.stop()
             self.ssh_server.stop()
             self.ftp_server.stop()
             self.sftp_server.stop()
             shutdown_scheduler()
+            self.db.close_all()
+            self._log("Server shutdown complete")
 
 
 def create_app():

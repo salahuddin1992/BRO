@@ -544,3 +544,31 @@ class SignalingServer:
                      and now - c["state_history"][-1][1] > 300]
             for cid in stale:
                 self._calls.pop(cid, None)
+
+            # Limit calls dict to prevent memory growth from stuck calls
+            if len(self._calls) > 1000:
+                oldest = sorted(self._calls.keys(),
+                                key=lambda k: self._calls[k].get("created_at", 0))
+                for cid in oldest[:len(self._calls) - 500]:
+                    self._calls.pop(cid, None)
+                logger.debug("Cleaned excess call records")
+
+            # Clean stale calls that never progressed past RINGING (60s timeout)
+            stuck = [cid for cid, c in self._calls.items()
+                     if c["state"] == CallState.RINGING
+                     and now - c["created_at"] > 60]
+            for cid in stuck:
+                self.end_call(cid, reason="timeout")
+                logger.debug(f"Call {cid} timed out in RINGING state")
+
+            # Clean stale calls stuck in CONNECTING (30s timeout)
+            stuck_connecting = [cid for cid, c in self._calls.items()
+                                if c["state"] == CallState.CONNECTING
+                                and now - c["state_history"][-1][1] > 30]
+            for cid in stuck_connecting:
+                self.end_call(cid, reason="ice_timeout")
+                logger.debug(f"Call {cid} timed out in CONNECTING state")
+
+            # Limit message sequence tracking
+            if len(self._msg_sequence) > 5000:
+                self._msg_sequence.clear()
