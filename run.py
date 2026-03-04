@@ -58,7 +58,54 @@ os.environ["BRO_RUNTIME_PATH"] = RUNTIME_PATH
 from server.bro_server import create_app
 
 
+def _setup_crash_logging():
+    """Redirect stderr to a log file so crashes are never silently lost.
+
+    When running as a frozen PyInstaller executable the console may or may not
+    be visible.  Writing to a crash log guarantees the traceback is preserved
+    regardless.
+    """
+    if not getattr(sys, 'frozen', False):
+        return
+    try:
+        import logging
+        log_path = os.path.join(RUNTIME_PATH, "helen_crash.log")
+        handler = logging.FileHandler(log_path, encoding="utf-8")
+        handler.setLevel(logging.ERROR)
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s"))
+        logging.getLogger().addHandler(handler)
+
+        # Also capture unhandled exceptions into the same file
+        _original_excepthook = sys.excepthook
+
+        def _crash_hook(exc_type, exc_value, exc_tb):
+            logging.getLogger("crash").critical(
+                "Unhandled exception", exc_info=(exc_type, exc_value, exc_tb))
+            # Try to show a visible error dialog on Windows
+            try:
+                if sys.platform == "win32":
+                    import ctypes
+                    import traceback
+                    msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+                    ctypes.windll.user32.MessageBoxW(
+                        0,
+                        f"Helen WiFi crashed.\n\nDetails saved to:\n{log_path}\n\n{msg[:800]}",
+                        "Helen WiFi - Error",
+                        0x10,  # MB_ICONERROR
+                    )
+            except Exception:
+                pass
+            _original_excepthook(exc_type, exc_value, exc_tb)
+
+        sys.excepthook = _crash_hook
+    except Exception:
+        pass  # logging setup itself must never prevent startup
+
+
 def main():
+    _setup_crash_logging()
+
     parser = argparse.ArgumentParser(description="Helen WiFi Server")
     parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
     parser.add_argument("--port", type=int, default=8400, help="Port (default: 8400)")
