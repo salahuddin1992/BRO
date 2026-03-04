@@ -143,10 +143,14 @@ function startServer() {
 
         if (serverPath && fs.existsSync(serverPath)) {
             // Production: run bundled executable
-            console.log(`Starting server: ${serverPath}`);
+            // Pass userData as runtime path so uploads/DB/certs go to a writable location
+            // (the EXE directory may be read-only, e.g. inside Program Files)
+            const runtimePath = app.getPath('userData');
+            console.log(`Starting server: ${serverPath}  (runtime: ${runtimePath})`);
             serverProcess = spawn(serverPath, ['--port', String(SERVER_PORT), '--verbose'], {
                 cwd: path.dirname(serverPath),
                 stdio: ['pipe', 'pipe', 'pipe'],
+                env: { ...process.env, BRO_RUNTIME_PATH: runtimePath },
             });
         } else {
             // Development: run Python directly
