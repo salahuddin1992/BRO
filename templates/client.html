@@ -2,7 +2,13 @@
 <html lang="ar" dir="rtl" id="htmlRoot">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0a0a1a">
+<meta name="apple-mobile-web-app-title" content="هيلين WiFi">
+<link rel="manifest" href="/static/manifest.json">
 <title>هيلين WiFi</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
@@ -293,19 +299,107 @@ body.light .info { background:rgba(0,0,0,0.02); }
 body.font-small { font-size:13px; }
 body.font-large { font-size:17px; }
 
+/* Status indicator colors */
+.status-dot.dnd { background:var(--red); }
+.status-text { font-size:.68em; color:var(--dim); }
+
+/* Enhanced status selector */
+.status-option { display:flex; align-items:center; gap:6px; }
+.status-option .dot { width:8px; height:8px; border-radius:50%; display:inline-block; }
+.status-option .dot.online { background:var(--green); }
+.status-option .dot.away { background:var(--yellow); }
+.status-option .dot.busy { background:var(--orange); }
+.status-option .dot.dnd { background:var(--red); }
+
+/* Reactions */
+.reactions-row { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; }
+.reaction-chip { display:flex; align-items:center; gap:3px; padding:2px 8px; border-radius:12px;
+                 background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.08);
+                 font-size:.75em; cursor:pointer; transition:all .2s; user-select:none; }
+.reaction-chip:hover { background:rgba(0,212,255,0.15); border-color:var(--accent); }
+.reaction-chip.mine { background:rgba(0,212,255,0.12); border-color:rgba(0,212,255,0.3); }
+.reaction-chip .emoji { font-size:1.1em; }
+.reaction-chip .count { color:var(--dim); font-size:.85em; }
+.reaction-add { display:flex; align-items:center; justify-content:center; width:26px; height:26px;
+                border-radius:50%; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08);
+                cursor:pointer; font-size:.8em; transition:all .2s; }
+.reaction-add:hover { background:rgba(0,212,255,0.15); }
+
+/* Emoji picker */
+.emoji-picker { position:absolute; bottom:100%; right:0; background:#1a1a2e; border:1px solid var(--border);
+                border-radius:10px; padding:8px; display:none; z-index:100; box-shadow:0 4px 20px rgba(0,0,0,0.5); }
+.emoji-picker.on { display:block; }
+.emoji-grid { display:grid; grid-template-columns:repeat(6,1fr); gap:4px; }
+.emoji-grid button { width:32px; height:32px; border:none; background:transparent; font-size:1.2em;
+                     cursor:pointer; border-radius:6px; transition:background .2s; }
+.emoji-grid button:hover { background:rgba(0,212,255,0.15); }
+
+/* Voice Room */
+.voice-room-panel { border-top:1px solid var(--border); padding:8px 0; }
+.voice-room-header { display:flex; align-items:center; justify-content:space-between; padding:6px 14px;
+                     font-size:.78em; color:var(--green); cursor:pointer; }
+.voice-room-header:hover { background:rgba(0,230,118,0.05); }
+.voice-room-icon { font-size:1em; margin-left:6px; }
+.voice-members { padding:0 14px; }
+.voice-member { display:flex; align-items:center; gap:6px; padding:4px 8px; font-size:.78em; border-radius:6px; }
+.voice-member .vm-avatar { width:24px; height:24px; background:linear-gradient(135deg,#00e676,#00bfa5);
+                           border-radius:50%; display:flex; align-items:center; justify-content:center;
+                           font-size:.7em; font-weight:bold; }
+.voice-member .vm-name { flex:1; }
+.voice-member .vm-muted { color:var(--red); font-size:.9em; }
+.voice-member .vm-speaking { color:var(--green); font-size:.9em; animation:pulse 1s infinite; }
+.voice-controls { display:flex; gap:6px; padding:6px 14px; }
+.voice-controls button { flex:1; padding:6px; border:none; border-radius:8px; cursor:pointer; font-size:.78em; color:#fff; }
+.voice-controls .vc-join { background:var(--green); }
+.voice-controls .vc-leave { background:var(--red); }
+.voice-controls .vc-mute { background:rgba(255,255,255,0.08); color:var(--text); }
+.voice-controls .vc-mute.muted { background:var(--red); color:#fff; }
+
+/* Voice room badge on room list */
+.voice-badge { display:flex; align-items:center; gap:3px; font-size:.65em; color:var(--green); margin-right:auto; }
+.voice-badge .vb-dot { width:6px; height:6px; border-radius:50%; background:var(--green); animation:pulse 1.5s infinite; }
+
 /* Mobile toggle */
 .mob-btn { display:none; position:fixed; top:10px; right:10px; z-index:60; width:38px; height:38px;
            border-radius:50%; border:1px solid var(--border); background:rgba(10,10,26,0.9);
            color:var(--accent); font-size:1.3em; cursor:pointer; align-items:center; justify-content:center; }
 
+/* Mobile bottom nav */
+.mobile-nav { display:none; position:fixed; bottom:0; left:0; right:0; background:rgba(10,10,26,0.95);
+              border-top:1px solid var(--border); z-index:60; padding:4px 0; padding-bottom:env(safe-area-inset-bottom); }
+.mobile-nav-inner { display:flex; justify-content:space-around; align-items:center; }
+.mnav-btn { display:flex; flex-direction:column; align-items:center; gap:2px; padding:6px 12px;
+            background:none; border:none; color:var(--dim); cursor:pointer; font-size:.7em; }
+.mnav-btn.active { color:var(--accent); }
+.mnav-btn .mnav-icon { font-size:1.4em; }
+
+/* Mobile info panel */
+.info-panel-mobile { display:none; position:fixed; top:0; left:0; right:0; bottom:56px; z-index:55;
+                     background:var(--bg); overflow-y:auto; padding:14px; }
+.info-panel-mobile.mob-on { display:block; }
+
 @media(max-width:768px) {
-    .app { grid-template-columns:1fr; }
-    .sidebar { display:none; position:fixed; top:0; right:0; width:280px; height:100vh; z-index:50;
+    .app { grid-template-columns:1fr; padding-bottom:56px; }
+    .sidebar { display:none; position:fixed; top:0; right:0; width:280px; height:calc(100vh - 56px); z-index:50;
              background:var(--bg); border-left:1px solid var(--border); box-shadow:-4px 0 20px rgba(0,0,0,0.6); }
     .sidebar.mob-on { display:flex; }
     .info { display:none; }
-    .mob-btn { display:flex; }
+    .mob-btn { display:none; }
+    .mobile-nav { display:block; }
     #localVid { width:100px; }
+    .msg { max-width:85%; }
+    .input-row { padding:8px 10px; }
+    .topbar { padding:8px 10px; }
+    .msgs { padding:10px; }
+    /* Swipe gestures hint */
+    .center { touch-action:pan-y; }
+}
+
+@media(max-width:480px) {
+    .auth-box { width:90%; padding:24px; }
+    .modal { width:90%; }
+    .profile-modal { width:90%; }
+    .settings-modal { width:90%; }
 }
 </style>
 </head>
@@ -436,9 +530,10 @@ body.font-large { font-size:17px; }
         <div class="my-status">
             <span style="font-size:.82em;" data-i18n="my_status">حالتي:</span>
             <select id="myStatus" onchange="setMyStatus(this.value)">
-                <option value="online" data-i18n="online">متصل</option>
-                <option value="away" data-i18n="away">بعيد</option>
-                <option value="busy" data-i18n="busy">مشغول</option>
+                <option value="online" data-i18n="online">&#9679; متصل</option>
+                <option value="away" data-i18n="away">&#9679; بعيد</option>
+                <option value="busy" data-i18n="busy">&#9679; مشغول</option>
+                <option value="dnd">&#9679; عدم الإزعاج</option>
             </select>
             <button onclick="doLogout()" style="margin-right:auto;background:none;border:1px solid var(--red);color:var(--red);
                     border-radius:6px;padding:3px 10px;font-size:.72em;cursor:pointer;" data-i18n="logout">خروج</button>
@@ -547,6 +642,31 @@ body.font-large { font-size:17px; }
         <div id="sharedFiles"></div>
     </div>
 </div>
+
+<!-- Mobile Bottom Navigation -->
+<div class="mobile-nav" id="mobileNav">
+    <div class="mobile-nav-inner">
+        <button class="mnav-btn active" id="mnavChat" onclick="mobileNavTo('chat')">
+            <span class="mnav-icon">&#128172;</span>
+            <span>الدردشة</span>
+        </button>
+        <button class="mnav-btn" id="mnavRooms" onclick="mobileNavTo('rooms')">
+            <span class="mnav-icon">&#127968;</span>
+            <span>الغرف</span>
+        </button>
+        <button class="mnav-btn" id="mnavUsers" onclick="mobileNavTo('users')">
+            <span class="mnav-icon">&#128101;</span>
+            <span>المتصلون</span>
+        </button>
+        <button class="mnav-btn" id="mnavInfo" onclick="mobileNavTo('info')">
+            <span class="mnav-icon">&#9881;</span>
+            <span>المزيد</span>
+        </button>
+    </div>
+</div>
+
+<!-- Mobile Info Panel -->
+<div class="info-panel-mobile" id="mobileInfoPanel"></div>
 
 <script src="/static/js/i18n.js"></script>
 <script src="/static/js/socket.io.min.js"></script>
@@ -2225,6 +2345,394 @@ if(typeof io !== 'undefined'){
         });
     };
 }
+
+// ============================================================
+// MESSAGE REACTIONS
+// ============================================================
+const QUICK_EMOJIS = ['👍','❤️','😂','😮','😢','👏','🔥','🎉','👎','💯'];
+
+function renderReactions(parentEl, msgId, reactions){
+    let existing = parentEl.querySelector('.reactions-row');
+    if(existing) existing.remove();
+    if(!reactions || Object.keys(reactions).length === 0) return;
+    let row = document.createElement('div');
+    row.className = 'reactions-row';
+    for(let emoji in reactions){
+        let users = reactions[emoji];
+        let chip = document.createElement('div');
+        chip.className = 'reaction-chip' + (users.includes(me) ? ' mine' : '');
+        chip.title = users.join(', ');
+        let emojiSpan = document.createElement('span');
+        emojiSpan.className = 'emoji';
+        emojiSpan.textContent = emoji;
+        chip.appendChild(emojiSpan);
+        if(users.length > 1){
+            let countSpan = document.createElement('span');
+            countSpan.className = 'count';
+            countSpan.textContent = users.length;
+            chip.appendChild(countSpan);
+        }
+        chip.addEventListener('click', ()=>{
+            if(users.includes(me)){
+                socket.emit('remove_reaction', {message_id: msgId, emoji: emoji});
+            } else {
+                socket.emit('add_reaction', {message_id: msgId, emoji: emoji});
+            }
+        });
+        row.appendChild(chip);
+    }
+    parentEl.appendChild(row);
+}
+
+function showEmojiPicker(msgId, anchorEl){
+    // Remove any existing picker
+    let old = document.querySelector('.emoji-picker.on');
+    if(old) old.remove();
+    let picker = document.createElement('div');
+    picker.className = 'emoji-picker on';
+    let grid = document.createElement('div');
+    grid.className = 'emoji-grid';
+    QUICK_EMOJIS.forEach(emoji => {
+        let btn = document.createElement('button');
+        btn.textContent = emoji;
+        btn.addEventListener('click', (e)=>{
+            e.stopPropagation();
+            socket.emit('add_reaction', {message_id: msgId, emoji: emoji});
+            picker.remove();
+        });
+        grid.appendChild(btn);
+    });
+    picker.appendChild(grid);
+    anchorEl.style.position = 'relative';
+    anchorEl.appendChild(picker);
+    // Close on click outside
+    setTimeout(()=>{
+        function closeP(e){ if(!picker.contains(e.target)){ picker.remove(); document.removeEventListener('click',closeP); }}
+        document.addEventListener('click', closeP);
+    }, 10);
+}
+
+// Update createMsgEl to include reaction button and render reactions
+let _origCreateMsgEl = createMsgEl;
+createMsgEl = function(d){
+    let div = _origCreateMsgEl(d);
+    // Add reaction button to actions
+    if(d.id){
+        let actions = div.querySelector('.msg-actions');
+        if(actions){
+            let reactBtn = document.createElement('button');
+            reactBtn.innerHTML = '&#128522;';
+            reactBtn.title = 'تفاعل';
+            reactBtn.addEventListener('click', (e)=>{
+                e.stopPropagation();
+                showEmojiPicker(d.id, div);
+            });
+            actions.insertBefore(reactBtn, actions.firstChild);
+        }
+        // Render existing reactions
+        if(d.reactions){
+            renderReactions(div, d.id, d.reactions);
+        }
+    }
+    return div;
+};
+
+// ============================================================
+// VOICE ROOMS (Persistent)
+// ============================================================
+let voiceRoomState = {}; // {room_id: {members: [...], ...}}
+let currentVoiceRoom = null;
+let voicePCs = {}; // {sid: RTCPeerConnection}
+let voiceLocalStream = null;
+let voiceMuted = false;
+
+function renderVoicePanel(roomId){
+    let container = document.getElementById('voiceRoomPanel');
+    if(!container) return;
+    let state = voiceRoomState[roomId];
+    if(!state || !state.members || state.members.length === 0){
+        container.innerHTML = '<div class="voice-room-header" onclick="joinVoiceRoom('+roomId+')"><span>&#128266; الغرفة الصوتية</span><span style="font-size:.72em;color:var(--dim);">انضم</span></div>';
+        return;
+    }
+    let html = '<div class="voice-room-header"><span>&#128266; الغرفة الصوتية ('+state.members.length+')</span></div>';
+    html += '<div class="voice-members">';
+    state.members.forEach(m => {
+        let initial = m.username[0].toUpperCase();
+        let muteIcon = m.muted ? '<span class="vm-muted">&#128263;</span>' : '<span class="vm-speaking">&#128264;</span>';
+        html += '<div class="voice-member"><div class="vm-avatar">'+initial+'</div><span class="vm-name">'+m.username+'</span>'+muteIcon+'</div>';
+    });
+    html += '</div>';
+    html += '<div class="voice-controls">';
+    let inThisRoom = currentVoiceRoom === roomId;
+    if(inThisRoom){
+        html += '<button class="vc-mute'+(voiceMuted?' muted':'')+'" onclick="toggleVoiceMute('+roomId+')">'+(voiceMuted?'&#128263; كتم':'&#128264; صوت')+'</button>';
+        html += '<button class="vc-leave" onclick="leaveVoiceRoom('+roomId+')">&#128308; مغادرة</button>';
+    } else {
+        html += '<button class="vc-join" onclick="joinVoiceRoom('+roomId+')">&#128266; انضم للصوت</button>';
+    }
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+async function joinVoiceRoom(roomId){
+    if(currentVoiceRoom && currentVoiceRoom !== roomId){
+        leaveVoiceRoom(currentVoiceRoom);
+    }
+    currentVoiceRoom = roomId;
+    try {
+        voiceLocalStream = await navigator.mediaDevices.getUserMedia({
+            audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true},
+            video:false
+        });
+    } catch(e){ sysMsg('خطأ بالميكروفون: '+e.message); currentVoiceRoom=null; return; }
+    socket.emit('join_voice_room', {room_id: roomId});
+    voiceMuted = false;
+    sysMsg('انضممت للغرفة الصوتية');
+}
+
+function leaveVoiceRoom(roomId){
+    socket.emit('leave_voice_room', {room_id: roomId || currentVoiceRoom});
+    // Cleanup peer connections
+    for(let sid in voicePCs){
+        try { voicePCs[sid].close(); } catch(e){}
+    }
+    voicePCs = {};
+    if(voiceLocalStream){ voiceLocalStream.getTracks().forEach(t=>t.stop()); voiceLocalStream=null; }
+    // Remove audio elements
+    document.querySelectorAll('[id^="voice-audio-"]').forEach(el=>el.remove());
+    currentVoiceRoom = null;
+    voiceMuted = false;
+    sysMsg('غادرت الغرفة الصوتية');
+    if(selRoom) renderVoicePanel(selRoom);
+}
+
+function toggleVoiceMute(roomId){
+    voiceMuted = !voiceMuted;
+    if(voiceLocalStream){
+        voiceLocalStream.getAudioTracks().forEach(t=>t.enabled = !voiceMuted);
+    }
+    socket.emit('voice_room_mute', {room_id: roomId, muted: voiceMuted});
+    renderVoicePanel(roomId);
+}
+
+async function createVoicePeerConnection(targetSid, roomId, isInitiator){
+    let vpc = new RTCPeerConnection(iceConfig);
+    voicePCs[targetSid] = vpc;
+    vpc.onicecandidate = e=>{
+        if(e.candidate) socket.emit('voice_room_ice', {candidate:e.candidate, target:targetSid, room_id:roomId});
+    };
+    vpc.ontrack = e=>{
+        let audio = document.createElement('audio');
+        audio.autoplay = true;
+        audio.id = 'voice-audio-'+targetSid;
+        audio.srcObject = e.streams[0];
+        document.body.appendChild(audio);
+    };
+    if(voiceLocalStream) voiceLocalStream.getTracks().forEach(t=> vpc.addTrack(t,voiceLocalStream));
+    if(isInitiator){
+        let offer = await vpc.createOffer();
+        await vpc.setLocalDescription(offer);
+        socket.emit('voice_room_offer', {sdp:offer.sdp, type:offer.type, target:targetSid, room_id:roomId});
+    }
+    return vpc;
+}
+
+// ============================================================
+// MOBILE NAVIGATION
+// ============================================================
+let mobileView = 'chat';
+
+function mobileNavTo(view){
+    mobileView = view;
+    document.querySelectorAll('.mnav-btn').forEach(b=>b.classList.remove('active'));
+    let sidebar = document.getElementById('sidebarPanel');
+    let infoPanel = document.getElementById('mobileInfoPanel');
+    sidebar.classList.remove('mob-on');
+    infoPanel.classList.remove('mob-on');
+
+    if(view === 'chat'){
+        document.getElementById('mnavChat').classList.add('active');
+    } else if(view === 'rooms'){
+        document.getElementById('mnavRooms').classList.add('active');
+        sidebar.classList.add('mob-on');
+        // Show rooms section
+    } else if(view === 'users'){
+        document.getElementById('mnavUsers').classList.add('active');
+        sidebar.classList.add('mob-on');
+    } else if(view === 'info'){
+        document.getElementById('mnavInfo').classList.add('active');
+        // Copy info content to mobile panel
+        let infoSrc = document.querySelector('.info');
+        if(infoSrc){
+            infoPanel.innerHTML = infoSrc.innerHTML;
+        }
+        // Add settings and profile buttons
+        infoPanel.innerHTML += '<div style="padding:10px 0;display:flex;flex-direction:column;gap:8px;">'
+            +'<button onclick="openProfileModal();mobileNavTo(\'chat\')" style="padding:10px;border:none;border-radius:8px;background:rgba(0,212,255,0.1);color:var(--accent);cursor:pointer;">&#9881; الملف الشخصي</button>'
+            +'<button onclick="openSettings();mobileNavTo(\'chat\')" style="padding:10px;border:none;border-radius:8px;background:rgba(0,212,255,0.1);color:var(--accent);cursor:pointer;">&#9881; الإعدادات</button>'
+            +'<button onclick="doLogout()" style="padding:10px;border:none;border-radius:8px;background:rgba(255,82,82,0.1);color:var(--red);cursor:pointer;">&#10005; خروج</button>'
+            +'</div>';
+        infoPanel.classList.add('mob-on');
+    }
+}
+
+// ============================================================
+// PWA SERVICE WORKER
+// ============================================================
+if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('/static/sw.js').catch(()=>{});
+}
+
+// ============================================================
+// SOCKET EVENTS FOR NEW FEATURES
+// ============================================================
+let _origInitSocket3 = initSocket;
+initSocket = function(user, pass, token){
+    _origInitSocket3(user, pass, token);
+
+    // Reactions updated
+    socket.on('reactions_updated', d=>{
+        let msgEl = document.querySelector('[data-msg-id="'+d.message_id+'"]');
+        if(msgEl){
+            renderReactions(msgEl, d.message_id, d.reactions);
+        }
+    });
+
+    // User status changed
+    socket.on('user_status_changed', d=>{
+        // Update in lastUsers
+        lastUsers.forEach(u=>{
+            if(u.username === d.username) u.status = d.status;
+        });
+        renderUsers(lastUsers);
+    });
+
+    // Voice room updated
+    socket.on('voice_room_updated', d=>{
+        voiceRoomState[d.room_id] = {members: d.members, room_name: d.room_name};
+        if(selRoom == d.room_id){
+            renderVoicePanel(d.room_id);
+        }
+        // Update room list to show voice badges
+        renderRooms();
+
+        // If we're in this voice room, set up peer connections with new members
+        if(currentVoiceRoom == d.room_id && voiceLocalStream){
+            d.members.forEach(m=>{
+                if(m.username !== me){
+                    // Find their SID
+                    let uSid = null;
+                    lastUsers.forEach(u=>{ if(u.username === m.username) uSid = u.sid; });
+                    if(uSid && !voicePCs[uSid]){
+                        createVoicePeerConnection(uSid, d.room_id, true);
+                    }
+                }
+            });
+        }
+    });
+
+    // Voice room WebRTC signaling
+    socket.on('voice_room_offer', async d=>{
+        let vpc = voicePCs[d.sender];
+        if(!vpc) vpc = await createVoicePeerConnection(d.sender, d.room_id, false);
+        await vpc.setRemoteDescription(new RTCSessionDescription({sdp:d.sdp, type:d.type}));
+        let answer = await vpc.createAnswer();
+        await vpc.setLocalDescription(answer);
+        socket.emit('voice_room_answer', {sdp:answer.sdp, type:answer.type, target:d.sender, room_id:d.room_id});
+    });
+
+    socket.on('voice_room_answer', async d=>{
+        let vpc = voicePCs[d.sender];
+        if(vpc) await vpc.setRemoteDescription(new RTCSessionDescription({sdp:d.sdp, type:d.type}));
+    });
+
+    socket.on('voice_room_ice', async d=>{
+        let vpc = voicePCs[d.sender];
+        if(vpc && d.candidate){
+            try{ await vpc.addIceCandidate(new RTCIceCandidate(d.candidate)); }catch(e){}
+        }
+    });
+
+    // Voice rooms list
+    socket.on('voice_rooms_list', d=>{
+        (d.voice_rooms || []).forEach(vr=>{
+            voiceRoomState[vr.room_id] = {members: [], room_name: vr.room_name, count: vr.member_count};
+        });
+        renderRooms();
+    });
+
+    // Room history includes voice members
+    socket.on('room_history', d=>{
+        if(d.voice_members){
+            voiceRoomState[d.room_id] = {members: d.voice_members, room_name: ''};
+            renderVoicePanel(d.room_id);
+        }
+    });
+};
+
+// ============================================================
+// UPDATE ROOM RENDERING FOR VOICE BADGES
+// ============================================================
+let _origRenderRooms = renderRooms;
+renderRooms = function(){
+    _origRenderRooms();
+    // Add voice badges to rooms that have active voice members
+    let roomEls = document.getElementById('roomList').children;
+    for(let i=0; i<myRooms.length && i<roomEls.length; i++){
+        let r = myRooms[i];
+        let vs = voiceRoomState[r.id];
+        if(vs && vs.members && vs.members.length > 0){
+            let badge = document.createElement('span');
+            badge.className = 'voice-badge';
+            badge.innerHTML = '<span class="vb-dot"></span> '+vs.members.length;
+            roomEls[i].appendChild(badge);
+        }
+    }
+};
+
+// ============================================================
+// UPDATE selectRoom TO SHOW VOICE PANEL
+// ============================================================
+let _origSelectRoom = selectRoom;
+selectRoom = function(id, name){
+    _origSelectRoom(id, name);
+    // Ensure voice panel is rendered
+    let voicePanel = document.getElementById('voiceRoomPanel');
+    if(voicePanel){
+        renderVoicePanel(id);
+    }
+};
+
+// ============================================================
+// ADD VOICE PANEL TO CHAT AREA (after topbar)
+// ============================================================
+(function(){
+    let topbar = document.querySelector('.topbar');
+    if(topbar){
+        let voiceDiv = document.createElement('div');
+        voiceDiv.id = 'voiceRoomPanel';
+        voiceDiv.className = 'voice-room-panel';
+        topbar.parentNode.insertBefore(voiceDiv, topbar.nextSibling);
+    }
+})();
+
+// ============================================================
+// UPDATE STATUS DOT RENDERING
+// ============================================================
+let _origRenderUsers = renderUsers;
+renderUsers = function(users){
+    _origRenderUsers(users);
+    // Update status dots to include dnd
+    let userEls = document.getElementById('userList').children;
+    let filtered = users.filter(u=>u.username!==me);
+    for(let i=0; i<filtered.length && i<userEls.length; i++){
+        let u = filtered[i];
+        let dot = userEls[i].querySelector('.status-dot');
+        if(dot && u.status === 'dnd'){
+            dot.className = 'status-dot dnd';
+        }
+    }
+};
 
 // --- i18n initialization ---
 (function(){

@@ -351,6 +351,26 @@ const I18N = {
 
             // No users
             'no_users': 'لا يوجد مستخدمون',
+
+            // Status
+            'dnd': 'عدم الإزعاج',
+
+            // Reactions
+            'react': 'تفاعل',
+
+            // Voice Rooms
+            'voice_room': 'الغرفة الصوتية',
+            'join_voice': 'انضم للصوت',
+            'leave_voice': 'مغادرة الصوت',
+            'mute': 'كتم',
+            'unmute': 'إلغاء الكتم',
+            'joined_voice_room': 'انضممت للغرفة الصوتية',
+            'left_voice_room': 'غادرت الغرفة الصوتية',
+            'mic_error': 'خطأ بالميكروفون',
+
+            // Mobile
+            'chat': 'الدردشة',
+            'more': 'المزيد',
         },
 
         // ============ English ============
@@ -658,6 +678,26 @@ const I18N = {
 
             // No users
             'no_users': 'No users',
+
+            // Status
+            'dnd': 'Do Not Disturb',
+
+            // Reactions
+            'react': 'React',
+
+            // Voice Rooms
+            'voice_room': 'Voice Room',
+            'join_voice': 'Join Voice',
+            'leave_voice': 'Leave Voice',
+            'mute': 'Mute',
+            'unmute': 'Unmute',
+            'joined_voice_room': 'Joined voice room',
+            'left_voice_room': 'Left voice room',
+            'mic_error': 'Microphone error',
+
+            // Mobile
+            'chat': 'Chat',
+            'more': 'More',
         }
     }
 };
