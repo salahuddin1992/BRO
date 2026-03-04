@@ -5,6 +5,12 @@ Uses eventlet or gevent green sockets (no asyncio conflict).
 Length-prefixed JSON frames + optional zlib compression.
 Smart reconnection with exponential backoff.
 HMAC challenge-response authentication (secret never sent on wire).
+
+Connection Type: TCP (port = SERVER_PORT + 2, default 8402)
+  - Transport: Raw TCP with length-prefixed frames [1-byte flags][4-byte len][payload]
+  - Auth: HMAC challenge-response (secret never transmitted)
+  - Compression: Optional zlib (flag 0x01)
+  - Keepalive: Ping every 15s, auto-reconnect on failure
 """
 import hashlib
 import hmac as hmac_mod
