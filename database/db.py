@@ -7,7 +7,7 @@ import threading
 import os
 import shutil
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from werkzeug.security import generate_password_hash, check_password_hash
 from cachetools import TTLCache
 
@@ -486,7 +486,7 @@ class Database:
 
     def save_message(self, sender, text, target=None, room_id=None, reply_to=None, encrypted=False):
         conn = self._get_conn()
-        ts = datetime.utcnow().isoformat()
+        ts = datetime.now(timezone.utc).isoformat()
         cur = conn.execute(
             "INSERT INTO messages (sender, text, target, room_id, reply_to, encrypted, timestamp) VALUES (?, ?, ?, ?, ?, ?, ?)",
             (sender, text, target, room_id, reply_to, 1 if encrypted else 0, ts))
@@ -771,7 +771,7 @@ class Database:
     def create_backup(self, backup_dir, description=""):
         """Create a backup of the database."""
         os.makedirs(backup_dir, exist_ok=True)
-        ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         backup_name = f"helen_backup_{ts}.db"
         backup_path = os.path.join(backup_dir, backup_name)
 

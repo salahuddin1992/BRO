@@ -11,7 +11,7 @@ const fs = require('fs');
 // Configuration
 const APP_NAME = 'Helen WiFi';
 const SERVER_PORT = 8400;
-const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
+const SERVER_URL = `https://127.0.0.1:${SERVER_PORT}`;
 const PROTOCOL_NAME = 'bro';
 
 let mainWindow = null;
@@ -291,6 +291,16 @@ function createWindow() {
                 ],
             },
         });
+    });
+
+    // Accept self-signed certificates from the local server
+    mainWindow.webContents.on('certificate-error', (event, url, error, certificate, callback) => {
+        if (url.startsWith(`https://127.0.0.1:${SERVER_PORT}`) || url.startsWith(`https://localhost:${SERVER_PORT}`)) {
+            event.preventDefault();
+            callback(true);
+        } else {
+            callback(false);
+        }
     });
 
     // Load the app

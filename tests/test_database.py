@@ -82,7 +82,8 @@ class TestUserManagement(TestDatabaseBase):
         self.db.register_user("alice", "pass1")
         self.db.register_user("bob", "pass2")
         users = self.db.get_all_users()
-        self.assertEqual(len(users), 2)
+        # 11 default seeded users + 2 registered = 13
+        self.assertEqual(len(users), 13)
         usernames = [u["username"] for u in users]
         self.assertIn("alice", usernames)
         self.assertIn("bob", usernames)
@@ -545,14 +546,15 @@ class TestBackupRestore(TestDatabaseBase):
         # Add more data after backup
         self.db.register_user("bob", "pass456")
         self.db.save_message("bob", "after backup", room_id=1)
-        self.assertEqual(self.db.count_users(), 2)
+        # 11 default seeded users + alice + bob = 13
+        self.assertEqual(self.db.count_users(), 13)
 
         # Restore
         success = self.db.restore_backup(backup_dir, result["filename"])
         self.assertTrue(success)
 
-        # Should have only alice (pre-backup state)
-        self.assertEqual(self.db.count_users(), 1)
+        # Should have only alice + 11 defaults (pre-backup state)
+        self.assertEqual(self.db.count_users(), 12)
         self.assertTrue(self.db.user_exists("alice"))
         self.assertFalse(self.db.user_exists("bob"))
 
@@ -606,9 +608,10 @@ class TestStats(TestDatabaseBase):
     """Tests for statistics methods."""
 
     def test_count_users(self):
-        self.assertEqual(self.db.count_users(), 0)
+        # 11 default seeded users exist on fresh DB
+        self.assertEqual(self.db.count_users(), 11)
         self.db.register_user("alice", "pass123")
-        self.assertEqual(self.db.count_users(), 1)
+        self.assertEqual(self.db.count_users(), 12)
 
     def test_count_banned(self):
         self.db.register_user("alice", "pass123")
