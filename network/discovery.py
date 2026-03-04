@@ -34,12 +34,34 @@ class ServiceDiscovery:
         self._on_peer_lost = None
 
     def start(self, on_peer_found=None, on_peer_lost=None):
-        """Start advertising this server and browsing for peers."""
+        """Start advertising this server and browsing for peers.
+
+        On Windows, multicast sockets may require Administrator privileges.
+        Falls back gracefully with a clear message if permissions are denied.
+        """
         self._on_peer_found = on_peer_found
         self._on_peer_lost = on_peer_lost
 
         try:
             self._zeroconf = Zeroconf(ip_version=IPVersion.V4Only)
+        except PermissionError:
+            logger.warning(
+                "Zeroconf requires elevated privileges (Run as Administrator on Windows). "
+                "mDNS discovery disabled — peers must connect by IP address."
+            )
+            return False
+        except OSError as e:
+            # Common: "An attempt was made to access a socket in a way
+            # forbidden by its access permissions" (WinError 10013)
+            if getattr(e, "winerror", None) == 10013 or "permission" in str(e).lower():
+                logger.warning(
+                    "Zeroconf socket permission denied (WinError 10013). "
+                    "Run as Administrator or allow multicast in firewall. "
+                    "mDNS discovery disabled."
+                )
+            else:
+                logger.warning(f"Zeroconf init failed (OS error): {e}")
+            return False
         except Exception as e:
             logger.warning(f"Zeroconf init failed: {e}")
             return False

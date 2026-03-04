@@ -93,8 +93,11 @@ def build_server():
         "engineio", "engineio.async_drivers.threading",
         "engineio.async_drivers.eventlet", "engineio.async_drivers.gevent",
         "socketio",
-        # --- DNS ---
+        # --- DNS (dnspython — used by gevent resolver + network) ---
         "dns", "dns.resolver", "dns.rdatatype", "dns.asyncresolver",
+        "dns.name", "dns.message", "dns.query", "dns.rdata",
+        "dns.rdataclass", "dns.zone", "dns.reversename",
+        "dns.inet", "dns.entropy",
         # --- App modules ---
         "config",
         "server", "server.bro_server", "server.signaling",
@@ -108,14 +111,26 @@ def build_server():
         "utils.notifications",
         # --- Crypto / imaging / misc ---
         "cryptography", "cryptography.hazmat.bindings._rust",
-        "PIL", "qrcode", "psutil", "apscheduler",
+        "PIL", "PIL.Image", "PIL.JpegImagePlugin", "PIL.PngImagePlugin",
+        "PIL.GifImagePlugin", "PIL.BmpImagePlugin", "PIL.WebPImagePlugin",
+        "qrcode", "psutil",
+        # --- APScheduler (triggers + jobstores + executors) ---
+        "apscheduler", "apscheduler.schedulers.background",
+        "apscheduler.triggers.interval", "apscheduler.triggers.cron",
+        "apscheduler.triggers.date",
+        "apscheduler.jobstores.memory", "apscheduler.executors.pool",
         "msgpack", "zstandard", "cachetools", "plyer",
+        # --- paramiko + bcrypt + nacl (SSH key support) ---
+        "paramiko", "bcrypt", "bcrypt._bcrypt", "nacl", "nacl.bindings",
+        "nacl.public", "nacl.signing",
         # --- aiortc + FFmpeg + cffi + pyOpenSSL (FIX #3) ---
         "aiortc", "aiortc.codecs", "aiortc.contrib", "aiortc.contrib.media",
         "aioice",
         "av",
         "cffi", "_cffi_backend",
         "OpenSSL", "OpenSSL.SSL", "OpenSSL.crypto",
+        # --- Flask-Limiter storage backend ---
+        "limits", "limits.storage", "limits.strategies",
         # --- Networking ---
         "zeroconf", "requests",
         # --- python-magic ---
