@@ -223,23 +223,34 @@ class LocalTurnServer:
             self._threads.append(t3)
             logger.info(f"TURN/TLS listener on {self.host}:{TURN_TLS_PORT}")
 
-            # TLS listener on 443 (firewall bypass), fallback to 8443 if no permission
+            # TLS listener on 443 (firewall bypass), fallback to 8443 if no permission.
+            # Probe the port first because _run_tcp runs on a separate thread
+            # and bind failures would be silently swallowed there.
             self._turn_443_actual_port = TURN_443_PORT
+            _probe_port = TURN_443_PORT
             try:
-                t4 = threading.Thread(target=self._run_tcp, args=(TURN_443_PORT, True), daemon=True)
+                _probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                _probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                _probe.bind((self.host, TURN_443_PORT))
+                _probe.close()
+            except OSError as e:
+                logger.warning(f"Could not bind TURN on port 443: {e} — trying {TURN_443_FALLBACK_PORT}")
+                _probe_port = TURN_443_FALLBACK_PORT
+                self._turn_443_actual_port = TURN_443_FALLBACK_PORT
+                try:
+                    _probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    _probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    _probe.bind((self.host, TURN_443_FALLBACK_PORT))
+                    _probe.close()
+                except OSError as e2:
+                    logger.warning(f"TURN 443 fallback also failed: {e2}")
+                    _probe_port = 0
+
+            if _probe_port:
+                t4 = threading.Thread(target=self._run_tcp, args=(_probe_port, True), daemon=True)
                 t4.start()
                 self._threads.append(t4)
-                logger.info(f"TURN/TLS-443 listener on {self.host}:{TURN_443_PORT}")
-            except Exception as e:
-                logger.warning(f"Could not bind TURN on port 443: {e} — trying {TURN_443_FALLBACK_PORT}")
-                try:
-                    self._turn_443_actual_port = TURN_443_FALLBACK_PORT
-                    t4 = threading.Thread(target=self._run_tcp, args=(TURN_443_FALLBACK_PORT, True), daemon=True)
-                    t4.start()
-                    self._threads.append(t4)
-                    logger.info(f"TURN/TLS-443 fallback listener on {self.host}:{TURN_443_FALLBACK_PORT}")
-                except Exception as e2:
-                    logger.warning(f"TURN 443 fallback also failed: {e2}")
+                logger.info(f"TURN/TLS-443 listener on {self.host}:{_probe_port}")
 
         # Cleanup thread for expired allocations
         tc = threading.Thread(target=self._cleanup_loop, daemon=True)

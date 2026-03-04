@@ -133,6 +133,9 @@ def build_server():
         "limits", "limits.storage", "limits.strategies",
         # --- Networking ---
         "zeroconf", "requests",
+        "urllib3", "urllib3.exceptions", "urllib3.util",
+        "urllib3.util.retry", "urllib3.util.ssl_",
+        "urllib3.contrib", "urllib3.connectionpool",
         # --- FTP server ---
         "pyftpdlib", "pyftpdlib.authorizers", "pyftpdlib.handlers",
         "pyftpdlib.servers", "pyftpdlib.filesystems",
@@ -154,12 +157,14 @@ def build_server():
     # 4. Build
     # FIX #5: REMOVED --noconsole so crash tracebacks are visible.
     #         The app itself minimises console noise (run.py --verbose controls output).
-    # Use --onefile to produce a single self-contained .exe with everything bundled.
-    print("[4/4] Building executable (--onefile)...")
+    # --onedir: avoids the 10-30s startup delay of --onefile where the entire
+    # bundle (150-250MB) is decompressed to a temp folder on every launch.
+    # With --onedir the files stay in place and the EXE starts instantly.
+    print("[4/4] Building executable (--onedir)...")
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", "HelenWiFi",
-        "--onefile",                                  # single .exe
+        "--onedir",                                   # directory bundle (fast startup)
         "--additional-hooks-dir", hooks_dir,          # FIX #1,3,4
         "--runtime-hook", rthook,                     # FIX #1
         *data, *h_args, "--noconfirm",
@@ -172,8 +177,9 @@ def build_server():
         print("\n  BUILD FAILED!")
         return False
 
+    # --onedir puts the executable inside dist/HelenWiFi/
+    out_dir = os.path.join(DIR, "dist", "HelenWiFi")
     # Create necessary writable directories next to the executable
-    out_dir = os.path.join(DIR, "dist")
     for d in ["uploads", "backups", "recordings"]:
         os.makedirs(os.path.join(out_dir, d), exist_ok=True)
 
@@ -182,7 +188,7 @@ def build_server():
     size = os.path.getsize(exe) / 1048576 if os.path.exists(exe) else 0
 
     print(f"\n  SERVER BUILD OK!")
-    print(f"  Executable : dist/HelenWiFi{ext} ({size:.1f} MB)")
+    print(f"  Executable : dist/HelenWiFi/HelenWiFi{ext} ({size:.1f} MB)")
     print(f"  Client     : http://localhost:8400/client")
     print(f"  Admin      : http://localhost:8400/admin\n")
     return True
@@ -206,9 +212,9 @@ def build_electron():
         print("  Download: https://nodejs.org/")
         return False
 
-    # Check server exe exists (--onefile puts it directly in dist/)
+    # Check server exe exists (--onedir puts it in dist/HelenWiFi/)
     ext = ".exe" if sys.platform == "win32" else ""
-    exe = os.path.join(DIR, "dist", f"HelenWiFi{ext}")
+    exe = os.path.join(DIR, "dist", "HelenWiFi", f"HelenWiFi{ext}")
     if not os.path.isfile(exe):
         print("  Warning: Server executable not found. Build server first:")
         print("    python build.py server")

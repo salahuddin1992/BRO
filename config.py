@@ -3,6 +3,33 @@ Helen WiFi - Configuration
 """
 import os
 import secrets
+import stat
+
+
+def _secure_file(path):
+    """Restrict file permissions to owner-only.
+
+    On Unix: chmod 600.
+    On Windows: os.chmod only sets the read-only flag and cannot restrict
+    to a single user, so we use icacls to remove inherited permissions and
+    grant access only to the current user.
+    """
+    try:
+        if os.name == "nt":
+            import subprocess
+            username = os.environ.get("USERNAME", "")
+            if username:
+                # Remove inherited ACLs, grant only current user full control
+                subprocess.run(
+                    ["icacls", path, "/inheritance:r",
+                     "/grant:r", f"{username}:(F)"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                    creationflags=0x08000000,  # CREATE_NO_WINDOW
+                )
+        else:
+            os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)  # 0o600
+    except Exception:
+        pass
 
 BASE_PATH = os.environ.get("BRO_BASE_PATH", os.path.dirname(os.path.abspath(__file__)))
 RUNTIME_PATH = os.environ.get("BRO_RUNTIME_PATH", os.path.dirname(os.path.abspath(__file__)))
@@ -29,7 +56,7 @@ def _load_or_create_secret():
     try:
         with open(_SECRET_FILE, "w") as f:
             f.write(key)
-        os.chmod(_SECRET_FILE, 0o600)
+        _secure_file(_SECRET_FILE)
     except OSError:
         pass
     return key
@@ -212,7 +239,7 @@ def _ensure_tls_certs():
             f.write(key.private_bytes(serialization.Encoding.PEM,
                                        serialization.PrivateFormat.TraditionalOpenSSL,
                                        serialization.NoEncryption()))
-        os.chmod(TLS_KEY, 0o600)
+        _secure_file(TLS_KEY)
         with open(TLS_CERT, "wb") as f:
             f.write(cert.public_bytes(serialization.Encoding.PEM))
         return True

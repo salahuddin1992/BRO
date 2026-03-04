@@ -86,14 +86,30 @@ BASE_PATH = get_base_path()
 RUNTIME_PATH = get_runtime_path()
 sys.path.insert(0, BASE_PATH)
 
-# In --onefile mode, av (PyAV/FFmpeg) DLLs are extracted to sys._MEIPASS.
+# In frozen mode, av (PyAV/FFmpeg) DLLs live alongside the executable.
 # Windows needs them on the DLL search path or av will fail to import.
 if getattr(sys, 'frozen', False) and sys.platform == 'win32':
-    try:
-        os.add_dll_directory(BASE_PATH)
-    except (OSError, AttributeError):
-        # add_dll_directory requires Python 3.8+; fall back to PATH
-        os.environ['PATH'] = BASE_PATH + os.pathsep + os.environ.get('PATH', '')
+    # Collect all directories that might contain DLLs (BASE_PATH + subdirs)
+    _dll_dirs = {BASE_PATH}
+    for _entry in os.listdir(BASE_PATH):
+        _subdir = os.path.join(BASE_PATH, _entry)
+        if os.path.isdir(_subdir):
+            # Check if the subdir actually contains DLLs to avoid noise
+            if any(f.lower().endswith(('.dll', '.pyd')) for f in os.listdir(_subdir)):
+                _dll_dirs.add(_subdir)
+    # Also include the directory of the running executable itself
+    _exe_dir = os.path.dirname(sys.executable)
+    if _exe_dir != BASE_PATH:
+        _dll_dirs.add(_exe_dir)
+
+    for _d in _dll_dirs:
+        try:
+            os.add_dll_directory(_d)
+        except (OSError, AttributeError):
+            pass
+    # Always set PATH as a fallback (works on all Python/Windows versions)
+    _extra = os.pathsep.join(_dll_dirs)
+    os.environ['PATH'] = _extra + os.pathsep + os.environ.get('PATH', '')
 
 # Set environment for config module
 os.environ["BRO_BASE_PATH"] = BASE_PATH
