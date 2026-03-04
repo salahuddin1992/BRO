@@ -28,10 +28,10 @@ def init_scheduler(db, upload_folder, backup_dir):
         id="auto_backup", replace_existing=True,
     )
 
-    # Cleanup old temp files every 6 hours
+    # Cleanup old orphaned files every 6 hours
     _scheduler.add_job(
         _cleanup_old_files, "interval", hours=6,
-        args=[upload_folder],
+        args=[upload_folder, db],
         id="cleanup_files", replace_existing=True,
     )
 
@@ -71,17 +71,37 @@ def _auto_backup(db, backup_dir):
         logger.error(f"Auto-backup failed: {e}")
 
 
-def _cleanup_old_files(upload_folder):
-    """Remove temporary/orphaned files older than 30 days."""
+def _cleanup_old_files(upload_folder, db=None):
+    """Remove orphaned files older than 30 days.
+
+    Only deletes files that are NOT tracked in the database, so user
+    uploads are never silently removed.  Known subdirectories like
+    ``_chunks`` and ``thumbnails`` are always skipped.
+    """
     if not os.path.isdir(upload_folder):
         return
+
+    # Collect the set of filenames the DB still knows about
+    tracked = set()
+    if db is not None:
+        try:
+            for f in db.list_files(limit=100_000):
+                tracked.add(f.get("saved_as", ""))
+        except Exception:
+            # If DB query fails, do NOT delete anything to be safe
+            return
+
+    _skip_dirs = {"thumbnails", "_chunks"}
     cutoff = time.time() - 30 * 24 * 3600  # 30 days
     removed = 0
     for fname in os.listdir(upload_folder):
-        if fname == "thumbnails":
+        if fname in _skip_dirs:
             continue
         fpath = os.path.join(upload_folder, fname)
         if os.path.isfile(fpath):
+            # Never delete files that are still tracked in the database
+            if fname in tracked:
+                continue
             try:
                 if os.path.getmtime(fpath) < cutoff:
                     os.remove(fpath)
@@ -89,7 +109,7 @@ def _cleanup_old_files(upload_folder):
             except OSError:
                 pass
     if removed:
-        logger.info(f"Cleanup: removed {removed} old files")
+        logger.info(f"Cleanup: removed {removed} orphaned files")
 
 
 def _cleanup_expired_files(db, upload_folder):

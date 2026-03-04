@@ -2259,7 +2259,12 @@ class BROServer:
 """)
 
         if getattr(sys, 'frozen', False):
-            threading.Timer(1.5, lambda: webbrowser.open(f"{scheme}://127.0.0.1:{port}/client")).start()
+            def _open_browser():
+                try:
+                    webbrowser.open(f"{scheme}://127.0.0.1:{port}/client")
+                except Exception:
+                    pass  # No default browser configured — user can navigate manually
+            threading.Timer(1.5, _open_browser).start()
 
         # Use HTTPS if TLS certificates are available
         ssl_kwargs = {}

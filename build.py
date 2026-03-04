@@ -155,13 +155,23 @@ def build_server():
     # FIX #5: REMOVED --noconsole so crash tracebacks are visible.
     #         The app itself minimises console noise (run.py --verbose controls output).
     # Use --onefile to produce a single self-contained .exe with everything bundled.
+    # FIX #10: --version-file embeds PE metadata (company, product, description)
+    #          which significantly reduces antivirus false-positive detection rates
+    #          for PyInstaller --onefile executables.
     print("[4/4] Building executable (--onefile)...")
+
+    version_file = os.path.join(DIR, "version_info.txt")
+    version_args = []
+    if sys.platform == "win32" and os.path.isfile(version_file):
+        version_args = ["--version-file", version_file]
+
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", "HelenWiFi",
         "--onefile",                                  # single .exe
         "--additional-hooks-dir", hooks_dir,          # FIX #1,3,4
         "--runtime-hook", rthook,                     # FIX #1
+        *version_args,                                # FIX #10: AV false-positive reduction
         *data, *h_args, "--noconfirm",
         # NOTE: --noconsole deliberately omitted (FIX #5)
         os.path.join(DIR, "run.py"),
