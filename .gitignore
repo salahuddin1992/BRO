@@ -19,6 +19,7 @@ tls_key.pem
 *.pem
 .env
 .env.*
+!.env.example
 =*
 # IDE
 .vscode/
