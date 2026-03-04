@@ -255,6 +255,30 @@ class BROServer:
         self._msg_rate[sid].append(now)
         return True
 
+    def _cleanup_stale_connections(self):
+        """Remove connections that have been unauthenticated for too long."""
+        now = time.time()
+        stale_timeout = 120  # 2 minutes without authentication
+        stale_sids = []
+        with self._clients_lock:
+            for sid, client in self.clients.items():
+                if client.get("username") is None:
+                    connected_at = client.get("connected_at", "")
+                    try:
+                        from datetime import datetime as dt
+                        ca = dt.fromisoformat(connected_at)
+                        age = (datetime.utcnow() - ca).total_seconds()
+                        if age > stale_timeout:
+                            stale_sids.append(sid)
+                    except Exception:
+                        pass
+        for sid in stale_sids:
+            try:
+                self.sio.disconnect(sid)
+                self.clients.pop(sid, None)
+            except Exception:
+                pass
+
     def _log(self, msg, level="info"):
         self.logs.append({"time": datetime.utcnow().isoformat(), "level": level, "message": msg})
         if len(self.logs) > 500:
@@ -289,18 +313,24 @@ class BROServer:
         return w
 
     def _setup_routes(self):
-        # Security headers (CSP)
+        # Security headers
         @self.app.after_request
         def _set_security_headers(response):
             response.headers["X-Content-Type-Options"] = "nosniff"
             response.headers["X-Frame-Options"] = "SAMEORIGIN"
             response.headers["X-XSS-Protection"] = "1; mode=block"
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+            response.headers["Permissions-Policy"] = (
+                "camera=(self), microphone=(self), geolocation=(), payment=()"
+            )
+            if config.TLS_AVAILABLE:
+                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline'; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: blob:; "
-                "media-src 'self' blob:; "
+                "media-src 'self' blob: mediastream:; "
                 "connect-src 'self' ws: wss:; "
                 "font-src 'self';"
             )
@@ -807,6 +837,10 @@ class BROServer:
             if not safe or safe != filename:
                 return jsonify({"error": "اسم ملف غير صالح"}), 400
             fpath = os.path.join(config.UPLOAD_FOLDER, safe)
+            # Path traversal protection: ensure resolved path is inside UPLOAD_FOLDER
+            real_path = os.path.realpath(fpath)
+            if not real_path.startswith(os.path.realpath(config.UPLOAD_FOLDER)):
+                return jsonify({"error": "مسار غير مسموح"}), 403
             if not os.path.isfile(fpath):
                 return jsonify({"error": "الملف غير موجود"}), 404
             return send_from_directory(config.UPLOAD_FOLDER, safe, as_attachment=True)
@@ -824,6 +858,10 @@ class BROServer:
             if not safe or safe != filename:
                 return jsonify({"error": "اسم ملف غير صالح"}), 400
             fpath = os.path.join(self.recordings_dir, safe)
+            # Path traversal protection
+            real_path = os.path.realpath(fpath)
+            if not real_path.startswith(os.path.realpath(self.recordings_dir)):
+                return jsonify({"error": "مسار غير مسموح"}), 403
             if not os.path.isfile(fpath):
                 return jsonify({"error": "التسجيل غير موجود"}), 404
             return send_from_directory(self.recordings_dir, safe, as_attachment=True)
@@ -1132,6 +1170,12 @@ class BROServer:
             if not session.get("admin"):
                 return jsonify({"error": "unauthorized"}), 403
             return jsonify(self.sfu.get_stats())
+
+    def _require_auth_ws(self):
+        """Check if the current WebSocket session is authenticated."""
+        sid = request.sid
+        client = self.clients.get(sid, {})
+        return client.get("username") is not None
 
     def _setup_events(self):
         @self.sio.on("connect")
@@ -1720,9 +1764,11 @@ class BROServer:
                     "sender": request.sid, "room_id": data.get("room_id"),
                 }, room=target)
 
-        # --- WebRTC signaling ---
+        # --- WebRTC signaling (auth required) ---
         @self.sio.on("call_request")
         def on_call_req(data):
+            if not self._require_auth_ws():
+                return
             sid = request.sid
             target = data["target"]
             call_type = data.get("call_type", "video")
@@ -1739,6 +1785,8 @@ class BROServer:
 
         @self.sio.on("call_accept")
         def on_call_accept(data):
+            if not self._require_auth_ws():
+                return
             sid = request.sid
             target = data["target"]
             call_id = data.get("call_id")
@@ -1752,6 +1800,8 @@ class BROServer:
 
         @self.sio.on("call_reject")
         def on_call_reject(data):
+            if not self._require_auth_ws():
+                return
             sid = request.sid
             target = data["target"]
             call_id = data.get("call_id")
@@ -1765,6 +1815,8 @@ class BROServer:
 
         @self.sio.on("call_end")
         def on_call_end(data):
+            if not self._require_auth_ws():
+                return
             target = data.get("target")
             call_id = data.get("call_id")
             if call_id:
@@ -1778,6 +1830,8 @@ class BROServer:
 
         @self.sio.on("webrtc_offer")
         def on_offer(data):
+            if not self._require_auth_ws():
+                return
             call_id = data.get("call_id")
             if call_id:
                 self.signaling.call_connecting(call_id)
@@ -1790,6 +1844,8 @@ class BROServer:
 
         @self.sio.on("webrtc_answer")
         def on_answer(data):
+            if not self._require_auth_ws():
+                return
             self.signaling.send_reliable("webrtc_answer", {
                 "sdp": data["sdp"], "type": data["type"],
                 "sender": request.sid, "target": data["target"],
@@ -1798,6 +1854,8 @@ class BROServer:
 
         @self.sio.on("webrtc_ice")
         def on_ice(data):
+            if not self._require_auth_ws():
+                return
             call_id = data.get("call_id")
             if call_id:
                 self.signaling.record_ice_candidate(call_id, request.sid, data.get("candidate"))
@@ -1902,6 +1960,25 @@ class BROServer:
 
         # Start scheduled tasks (auto-backup, cleanup)
         self._scheduler = init_scheduler(self.db, config.UPLOAD_FOLDER, self.backup_dir)
+
+        # Periodic cleanup of stale unauthenticated connections
+        def _stale_cleanup_loop():
+            while True:
+                try:
+                    try:
+                        import eventlet
+                        eventlet.sleep(60)
+                    except ImportError:
+                        import gevent
+                        gevent.sleep(60)
+                except Exception:
+                    time.sleep(60)
+                try:
+                    self._cleanup_stale_connections()
+                except Exception:
+                    pass
+        _cleanup_t = threading.Thread(target=_stale_cleanup_loop, daemon=True)
+        _cleanup_t.start()
 
         # Desktop notification
         notify_server_started(self.host_ip, port)
