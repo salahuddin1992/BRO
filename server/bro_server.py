@@ -1221,6 +1221,19 @@ class BROServer:
                 still_online = any(c.get("username") == name for c in self.clients.values())
                 if not still_online:
                     self.db.set_offline(name)
+                    # Leave all voice rooms on disconnect
+                    left_rooms = self.db.leave_all_voice_rooms(name)
+                    for vr_id in left_rooms:
+                        voice_members = self.db.get_voice_room_members(vr_id)
+                        room_members = self.db.get_room_members(vr_id)
+                        room = self.db.get_room(vr_id)
+                        for csid, cl in self.clients.items():
+                            if cl.get("username") in room_members:
+                                self.sio.emit("voice_room_updated", {
+                                    "room_id": vr_id,
+                                    "room_name": room["name"] if room else str(vr_id),
+                                    "members": voice_members,
+                                }, room=csid)
                 self._log(f"Disconnected: {name}")
             self.signaling.handle_disconnect(sid, username=name)
             self.sfu.handle_disconnect(sid)
@@ -1407,7 +1420,10 @@ class BROServer:
                 self._attach_reply_info(msgs)
                 files = self.db.get_files(room_id=room_id, limit=20) if not before_id else []
                 has_more = len(msgs) == 50
-                emit("room_history", {"room_id": room_id, "messages": msgs, "files": files, "before_id": before_id, "has_more": has_more})
+                voice_members = self.db.get_voice_room_members(room_id)
+                emit("room_history", {"room_id": room_id, "messages": msgs, "files": files,
+                                      "before_id": before_id, "has_more": has_more,
+                                      "voice_members": voice_members})
 
         @self.sio.on("get_dm_history")
         def on_dm_history(data):
@@ -1434,10 +1450,181 @@ class BROServer:
             client = self.clients.get(sid, {})
             username = client.get("username")
             status = data.get("status", "online")
-            if username and status in ("online", "away", "busy"):
+            if username and status in ("online", "away", "busy", "dnd"):
                 self.clients[sid]["status"] = status
                 self.db.set_status(username, status)
+                self.sio.emit("user_status_changed", {
+                    "username": username, "status": status
+                })
                 self._broadcast_users()
+
+        # --- Reactions ---
+        @self.sio.on("add_reaction")
+        def on_add_reaction(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
+            msg_id = data.get("message_id")
+            emoji = data.get("emoji", "")
+            if not msg_id or not emoji or len(emoji) > 10:
+                return
+            msg = self.db.get_message(msg_id)
+            if not msg:
+                return
+            self.db.add_reaction(msg_id, username, emoji)
+            reactions = self.db.get_reactions(msg_id)
+            payload = {"message_id": msg_id, "reactions": reactions}
+            # Broadcast to relevant users
+            if msg.get("room_id"):
+                members = self.db.get_room_members(msg["room_id"])
+                for csid, cl in self.clients.items():
+                    if cl.get("username") in members:
+                        self.sio.emit("reactions_updated", payload, room=csid)
+            elif msg.get("target"):
+                for csid, cl in self.clients.items():
+                    uname = cl.get("username")
+                    if uname in (msg["sender"], msg["target"]):
+                        self.sio.emit("reactions_updated", payload, room=csid)
+
+        @self.sio.on("remove_reaction")
+        def on_remove_reaction(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
+            msg_id = data.get("message_id")
+            emoji = data.get("emoji", "")
+            if not msg_id or not emoji:
+                return
+            msg = self.db.get_message(msg_id)
+            if not msg:
+                return
+            self.db.remove_reaction(msg_id, username, emoji)
+            reactions = self.db.get_reactions(msg_id)
+            payload = {"message_id": msg_id, "reactions": reactions}
+            if msg.get("room_id"):
+                members = self.db.get_room_members(msg["room_id"])
+                for csid, cl in self.clients.items():
+                    if cl.get("username") in members:
+                        self.sio.emit("reactions_updated", payload, room=csid)
+            elif msg.get("target"):
+                for csid, cl in self.clients.items():
+                    uname = cl.get("username")
+                    if uname in (msg["sender"], msg["target"]):
+                        self.sio.emit("reactions_updated", payload, room=csid)
+
+        # --- Voice Rooms (Persistent) ---
+        @self.sio.on("join_voice_room")
+        def on_join_voice_room(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
+            room_id = data.get("room_id")
+            if not room_id:
+                return
+            members = self.db.get_room_members(room_id)
+            if username not in members:
+                return
+            self.db.join_voice_room(room_id, username)
+            voice_members = self.db.get_voice_room_members(room_id)
+            room = self.db.get_room(room_id)
+            # Notify all room members
+            for csid, cl in self.clients.items():
+                if cl.get("username") in members:
+                    self.sio.emit("voice_room_updated", {
+                        "room_id": room_id,
+                        "room_name": room["name"] if room else str(room_id),
+                        "members": voice_members,
+                    }, room=csid)
+            self._log(f"Voice room join: {username} -> room {room_id}")
+
+        @self.sio.on("leave_voice_room")
+        def on_leave_voice_room(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
+            room_id = data.get("room_id")
+            if not room_id:
+                return
+            self.db.leave_voice_room(room_id, username)
+            voice_members = self.db.get_voice_room_members(room_id)
+            members = self.db.get_room_members(room_id)
+            room = self.db.get_room(room_id)
+            for csid, cl in self.clients.items():
+                if cl.get("username") in members:
+                    self.sio.emit("voice_room_updated", {
+                        "room_id": room_id,
+                        "room_name": room["name"] if room else str(room_id),
+                        "members": voice_members,
+                    }, room=csid)
+
+        @self.sio.on("voice_room_mute")
+        def on_voice_mute(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
+            room_id = data.get("room_id")
+            muted = data.get("muted", False)
+            if not room_id:
+                return
+            self.db.set_voice_muted(room_id, username, muted)
+            voice_members = self.db.get_voice_room_members(room_id)
+            members = self.db.get_room_members(room_id)
+            room = self.db.get_room(room_id)
+            for csid, cl in self.clients.items():
+                if cl.get("username") in members:
+                    self.sio.emit("voice_room_updated", {
+                        "room_id": room_id,
+                        "room_name": room["name"] if room else str(room_id),
+                        "members": voice_members,
+                    }, room=csid)
+
+        @self.sio.on("get_voice_rooms")
+        def on_get_voice_rooms(data):
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
+            active = self.db.get_all_voice_rooms()
+            emit("voice_rooms_list", {"voice_rooms": active})
+
+        # --- Voice Room WebRTC Signaling ---
+        @self.sio.on("voice_room_offer")
+        def on_voice_room_offer(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("voice_room_offer", {
+                    "sdp": data["sdp"], "type": data["type"],
+                    "sender": request.sid, "room_id": data.get("room_id"),
+                }, room=target)
+
+        @self.sio.on("voice_room_answer")
+        def on_voice_room_answer(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("voice_room_answer", {
+                    "sdp": data["sdp"], "type": data["type"],
+                    "sender": request.sid, "room_id": data.get("room_id"),
+                }, room=target)
+
+        @self.sio.on("voice_room_ice")
+        def on_voice_room_ice(data):
+            target = data.get("target")
+            if target and target in self.clients:
+                self.sio.emit("voice_room_ice", {
+                    "candidate": data.get("candidate"),
+                    "sender": request.sid, "room_id": data.get("room_id"),
+                }, room=target)
 
         # --- Typing ---
         @self.sio.on("typing")
@@ -1892,12 +2079,16 @@ class BROServer:
                 self.mesh.forward_to_peer(server_id, event, data)
 
     def _attach_reply_info(self, msgs):
-        """Attach reply_info to messages that have reply_to."""
+        """Attach reply_info and reactions to messages."""
+        msg_ids = [m["id"] for m in msgs if m.get("id")]
+        reactions_map = self.db.get_reactions_batch(msg_ids) if msg_ids else {}
         for m in msgs:
             if m.get("reply_to"):
                 ref = self.db.get_message(m["reply_to"])
                 if ref:
                     m["reply_info"] = {"sender": ref["sender"], "text": ref["text"][:80]}
+            if m.get("id") in reactions_map:
+                m["reactions"] = reactions_map[m["id"]]
 
     def _broadcast_users(self, sync=True):
         local_users = []

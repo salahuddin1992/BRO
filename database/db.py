@@ -146,6 +146,27 @@ class Database:
                 description TEXT DEFAULT ''
             );
 
+            CREATE TABLE IF NOT EXISTS reactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                message_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                emoji TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                UNIQUE(message_id, username, emoji),
+                FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS voice_rooms (
+                room_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                joined_at TEXT DEFAULT (datetime('now')),
+                muted INTEGER DEFAULT 0,
+                PRIMARY KEY (room_id, username),
+                FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_reactions_message ON reactions(message_id);
+            CREATE INDEX IF NOT EXISTS idx_voice_rooms_room ON voice_rooms(room_id);
             CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id);
             CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
             CREATE INDEX IF NOT EXISTS idx_messages_target ON messages(target);
@@ -770,6 +791,117 @@ class Database:
         conn.execute("DELETE FROM backups WHERE id=?", (backup_id,))
         conn.commit()
         return row["filename"] if row else None
+
+    # ===================== Reactions =====================
+
+    def add_reaction(self, message_id, username, emoji):
+        """Add a reaction to a message. Returns True if added, False if already exists."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO reactions (message_id, username, emoji) VALUES (?, ?, ?)",
+                (message_id, username, emoji))
+            conn.commit()
+            return True
+        except Exception:
+            return False
+
+    def remove_reaction(self, message_id, username, emoji):
+        """Remove a reaction from a message."""
+        conn = self._get_conn()
+        conn.execute(
+            "DELETE FROM reactions WHERE message_id=? AND username=? AND emoji=?",
+            (message_id, username, emoji))
+        conn.commit()
+
+    def get_reactions(self, message_id):
+        """Get all reactions for a message, grouped by emoji."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT emoji, username FROM reactions WHERE message_id=? ORDER BY created_at",
+            (message_id,)).fetchall()
+        result = {}
+        for r in rows:
+            emoji = r["emoji"]
+            if emoji not in result:
+                result[emoji] = []
+            result[emoji].append(r["username"])
+        return result
+
+    def get_reactions_batch(self, message_ids):
+        """Get reactions for multiple messages at once."""
+        if not message_ids:
+            return {}
+        conn = self._get_conn()
+        placeholders = ",".join("?" for _ in message_ids)
+        rows = conn.execute(
+            f"SELECT message_id, emoji, username FROM reactions WHERE message_id IN ({placeholders}) ORDER BY created_at",
+            message_ids).fetchall()
+        result = {}
+        for r in rows:
+            mid = r["message_id"]
+            if mid not in result:
+                result[mid] = {}
+            emoji = r["emoji"]
+            if emoji not in result[mid]:
+                result[mid][emoji] = []
+            result[mid][emoji].append(r["username"])
+        return result
+
+    # ===================== Voice Rooms =====================
+
+    def join_voice_room(self, room_id, username):
+        """Join a voice room."""
+        conn = self._get_conn()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO voice_rooms (room_id, username) VALUES (?, ?)",
+                (room_id, username))
+            conn.commit()
+            return True
+        except Exception:
+            return False
+
+    def leave_voice_room(self, room_id, username):
+        """Leave a voice room."""
+        conn = self._get_conn()
+        conn.execute("DELETE FROM voice_rooms WHERE room_id=? AND username=?", (room_id, username))
+        conn.commit()
+
+    def leave_all_voice_rooms(self, username):
+        """Remove user from all voice rooms (on disconnect)."""
+        conn = self._get_conn()
+        rooms = conn.execute("SELECT room_id FROM voice_rooms WHERE username=?", (username,)).fetchall()
+        conn.execute("DELETE FROM voice_rooms WHERE username=?", (username,))
+        conn.commit()
+        return [r["room_id"] for r in rooms]
+
+    def get_voice_room_members(self, room_id):
+        """Get all users in a voice room."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT username, muted, joined_at FROM voice_rooms WHERE room_id=?",
+            (room_id,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def set_voice_muted(self, room_id, username, muted):
+        """Set mute status in voice room."""
+        conn = self._get_conn()
+        conn.execute(
+            "UPDATE voice_rooms SET muted=? WHERE room_id=? AND username=?",
+            (1 if muted else 0, room_id, username))
+        conn.commit()
+
+    def get_all_voice_rooms(self):
+        """Get all voice rooms with their members count."""
+        conn = self._get_conn()
+        rows = conn.execute("""
+            SELECT vr.room_id, r.name as room_name, COUNT(*) as member_count
+            FROM voice_rooms vr
+            JOIN rooms r ON r.id = vr.room_id
+            GROUP BY vr.room_id
+        """).fetchall()
+        return [dict(r) for r in rows]
 
     # ===================== Stats =====================
 
