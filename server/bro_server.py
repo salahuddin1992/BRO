@@ -34,6 +34,9 @@ from network.turn_server import LocalTurnServer
 from network.discovery import ServiceDiscovery
 from network.ws_mesh import WebSocketMeshBridge
 from network.sfu import SFUManager
+from network.ssh_server import SSHServer
+from network.ftp_server import FTPServer
+from network.sftp_server import SFTPServer
 from mesh.mesh_node import MeshNode
 from server.signaling import SignalingServer
 from database.db import Database, ROLE_USER, ROLE_MODERATOR, ROLE_ADMIN
@@ -158,6 +161,23 @@ class BROServer:
         # WebSocket mesh bridge (persistent peer-to-peer connections)
         self.ws_mesh = WebSocketMeshBridge(
             self.server_id, self.host_ip, config.SERVER_PORT, config.SECRET_KEY
+        )
+
+        # SSH Server (remote terminal for admin/moderator)
+        self.ssh_server = SSHServer(
+            self.db, host=config.SERVER_HOST, port=config.SSH_PORT,
+            host_key_file=config.SSH_HOST_KEY
+        )
+
+        # FTP Server (file transfer - unencrypted)
+        self.ftp_server = FTPServer(
+            self.db, config.UPLOAD_FOLDER, host=config.SERVER_HOST, port=config.FTP_PORT
+        )
+
+        # SFTP Server (secure file transfer via SSH)
+        self.sftp_server = SFTPServer(
+            self.db, config.UPLOAD_FOLDER, host=config.SERVER_HOST, port=config.SFTP_PORT,
+            host_key_file=config.SFTP_HOST_KEY
         )
 
         # State (online sessions) - thread-safe via lock
@@ -458,6 +478,9 @@ class BROServer:
                     "mdns_peers": self.discovery.get_discovered_peers(),
                 },
                 "ws_mesh": self.ws_mesh.get_stats(),
+                "ssh": self.ssh_server.get_stats(),
+                "ftp": self.ftp_server.get_stats(),
+                "sftp": self.sftp_server.get_stats(),
             })
 
         @self.app.route("/api/admin/mesh/connect", methods=["POST"])
@@ -2153,6 +2176,20 @@ class BROServer:
 
         self.ws_mesh.start(on_message=_on_ws_message)
 
+        # Start SSH/FTP/SFTP servers
+        if config.SSH_ENABLED:
+            self.ssh_server.start()
+            if self.ssh_server.available:
+                self._log(f"SSH server started on port {config.SSH_PORT}")
+        if config.FTP_ENABLED:
+            self.ftp_server.start()
+            if self.ftp_server.available:
+                self._log(f"FTP server started on port {config.FTP_PORT}")
+        if config.SFTP_ENABLED:
+            self.sftp_server.start()
+            if self.sftp_server.available:
+                self._log(f"SFTP server started on port {config.SFTP_PORT}")
+
         # Generate QR code for easy connection
         scheme = "https" if config.TLS_AVAILABLE else "http"
         client_url = f"{scheme}://{self.host_ip}:{port}/client"
@@ -2205,6 +2242,9 @@ class BROServer:
   QR Code   : {scheme}://{self.host_ip}:{port}/api/qr-code
   STUN/TURN : stun:{self.host_ip}:3478 | turn:UDP/TCP:3478
   SFU       : {sfu_mode}
+  SSH       : {'ssh://' + self.host_ip + ':' + str(config.SSH_PORT) if config.SSH_ENABLED and self.ssh_server.available else 'Disabled'}
+  FTP       : {'ftp://' + self.host_ip + ':' + str(config.FTP_PORT) if config.FTP_ENABLED and self.ftp_server.available else 'Disabled'}
+  SFTP      : {'sftp://' + self.host_ip + ':' + str(config.SFTP_PORT) if config.SFTP_ENABLED and self.sftp_server.available else 'Disabled'}
   Diagnostics: {scheme}://{self.host_ip}:{port}/api/rtc/diagnostics
   WS Mesh   : ws://{self.host_ip}:{port + 2}
   mDNS      : Active (auto-discovery on all networks)
@@ -2230,6 +2270,9 @@ class BROServer:
             self.turn_server.stop()
             self.discovery.stop()
             self.ws_mesh.stop()
+            self.ssh_server.stop()
+            self.ftp_server.stop()
+            self.sftp_server.stop()
             shutdown_scheduler()
 
 
