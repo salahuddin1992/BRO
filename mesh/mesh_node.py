@@ -46,7 +46,7 @@ class MeshNode:
 
     def stop(self):
         self._running = False
-        self._send_broadcast({"type": "leave", "server_id": self.server_id})
+        self._send_broadcast({"type": "leave", "server_id": self.server_id, "ts": time.time()})
 
     # --- UDP Discovery ---
 
@@ -125,6 +125,7 @@ class MeshNode:
                 "mesh_port": self.mesh_port,
                 "peer_count": len(self.peers),
                 "all_ips": all_ips,
+                "ts": time.time(),
             })
             # Periodic user sync every 10s
             tick += 1
@@ -159,15 +160,27 @@ class MeshNode:
         return mac + data
 
     def _verify_message(self, signed_data):
-        """Verify HMAC signature and return the payload if valid."""
+        """Verify HMAC signature and return the payload if valid.
+
+        Also validates timestamp to prevent replay attacks (max 30s drift).
+        """
         if len(signed_data) < 32:
             return None
         received_mac = signed_data[:32]
         payload = signed_data[32:]
         expected_mac = hmac_mod.new(config.SECRET_KEY.encode(), payload, hashlib.sha256).digest()
-        if hmac_mod.compare_digest(received_mac, expected_mac):
-            return payload
-        return None
+        if not hmac_mod.compare_digest(received_mac, expected_mac):
+            return None
+        # Replay protection: check message timestamp
+        try:
+            msg = msgpack.unpackb(payload, raw=False)
+            msg_ts = msg.get("ts", 0)
+            if msg_ts and abs(time.time() - msg_ts) > 30:
+                logger.debug("Mesh message rejected: too old (replay protection)")
+                return None
+        except Exception:
+            pass
+        return payload
 
     def _send_broadcast(self, msg):
         data = msgpack.packb(msg, use_bin_type=True)
@@ -343,7 +356,7 @@ class MeshNode:
             return True
         except Exception:
             pass
-        # Fallback: UDP announce to all subnets
+        # Fallback: signed UDP announce to the target peer
         all_ips = [i["ip"] for i in self.interfaces] if self.interfaces else [self.host]
         msg = {
             "type": "announce",
@@ -353,10 +366,13 @@ class MeshNode:
             "mesh_port": self.mesh_port,
             "peer_count": len(self.peers),
             "all_ips": all_ips,
+            "ts": time.time(),
         }
         try:
+            data = msgpack.packb(msg, use_bin_type=True)
+            signed = self._sign_message(data)
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.sendto(msgpack.packb(msg, use_bin_type=True), (host, int(port)))
+            sock.sendto(signed, (host, int(port)))
             sock.close()
             return True
         except OSError:

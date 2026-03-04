@@ -204,6 +204,16 @@ class BROServer:
         self._setup_events()
 
     @staticmethod
+    def _validate_username(username):
+        """Validate username: 2-30 chars, alphanumeric/Arabic + underscore/dash only."""
+        if not username or len(username) < 2 or len(username) > 30:
+            return False, "اسم المستخدم يجب أن يكون بين 2 و 30 حرفاً"
+        # Allow letters (any script including Arabic), digits, underscore, dash
+        if not re.match(r'^[\w\u0600-\u06FF\u0750-\u077F-]+$', username):
+            return False, "اسم المستخدم يحتوي على أحرف غير مسموحة"
+        return True, ""
+
+    @staticmethod
     def _validate_password(pw):
         """Validate password meets policy. Returns (ok, error_msg)."""
         if len(pw) < config.PASSWORD_MIN_LENGTH:
@@ -1243,14 +1253,9 @@ class BROServer:
             if not username or not password:
                 emit("auth_result", {"ok": False, "error": "الاسم وكلمة المرور مطلوبين"})
                 return
-            if len(username) < 2:
-                emit("auth_result", {"ok": False, "error": "الاسم قصير جداً"})
-                return
-            if len(username) > 30:
-                emit("auth_result", {"ok": False, "error": "الاسم طويل جداً"})
-                return
-            if not re.match(r'^[\w\u0600-\u06FF\u0750-\u077F\s\-]+$', username):
-                emit("auth_result", {"ok": False, "error": "الاسم يحتوي على رموز غير مسموحة"})
+            uname_ok, uname_err = self._validate_username(username)
+            if not uname_ok:
+                emit("auth_result", {"ok": False, "error": uname_err})
                 return
             pw_ok, pw_err = self._validate_password(password)
             if not pw_ok:

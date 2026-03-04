@@ -22,6 +22,9 @@ from collections import defaultdict
 
 logger = logging.getLogger("BRO.sfu")
 
+# Maximum participants per SFU room (prevents server overload)
+MAX_ROOM_SIZE = 20
+
 
 class SFURoom:
     """Represents a media room in the SFU.
@@ -38,8 +41,11 @@ class SFURoom:
         self._lock = threading.Lock()
 
     def add_participant(self, sid, username, media_types=None):
-        """Add a participant to the room."""
+        """Add a participant to the room. Returns participant list or None if full."""
         with self._lock:
+            if len(self.participants) >= MAX_ROOM_SIZE:
+                logger.warning(f"SFU room {self.room_id}: rejected {username} (room full: {MAX_ROOM_SIZE})")
+                return None
             self.participants[sid] = {
                 "sid": sid,
                 "username": username,
@@ -182,6 +188,14 @@ class SFUManager:
 
             room = self._get_or_create_room(room_id)
             existing_participants = room.add_participant(sid, username, media_types)
+            if existing_participants is None:
+                # Room is full
+                sio.emit("sfu_error", {
+                    "room_id": room_id,
+                    "error": "room_full",
+                    "max_size": MAX_ROOM_SIZE,
+                }, room=sid)
+                return
             self._participant_rooms[sid] = room_id
             sio.enter_room(sid, f"sfu_{room_id}")
 

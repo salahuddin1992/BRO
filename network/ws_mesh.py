@@ -261,16 +261,36 @@ class WebSocketMeshBridge:
 
     def _listen_loop(self, sock, peer_id):
         """Read messages from a connected peer until disconnect."""
+        last_pong = time.time()
+        # Start heartbeat sender for this connection
+        _green_spawn(self._heartbeat_sender, sock, peer_id)
         while self._running:
             data = self._recv_frame(sock)
             if data is None:
                 break
+            # Handle ping/pong keepalive
+            if data.get("type") == "__ping__":
+                self._send_frame(sock, {"type": "__pong__"})
+                continue
+            if data.get("type") == "__pong__":
+                last_pong = time.time()
+                continue
             data["_from_peer"] = peer_id
             if self._on_message:
                 try:
                     self._on_message(data)
                 except Exception as e:
                     logger.debug(f"Message handler error: {e}")
+
+    def _heartbeat_sender(self, sock, peer_id):
+        """Send periodic pings to detect dead connections."""
+        while self._running and peer_id in self._connections:
+            _green_sleep(15)
+            try:
+                if not self._send_frame(sock, {"type": "__ping__"}):
+                    break
+            except Exception:
+                break
 
     def _cleanup_peer(self, peer_id, sock):
         """Clean up after a peer disconnects."""

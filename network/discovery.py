@@ -71,7 +71,10 @@ class ServiceDiscovery:
         logger.info("mDNS discovery stopped")
 
     def _register_service(self):
-        """Register this Helen WiFi server on all detected network interfaces."""
+        """Register this Helen WiFi server on all detected network interfaces.
+
+        Retries up to 3 times with exponential backoff on failure.
+        """
         service_name = f"{SERVICE_NAME_PREFIX}{self.server_id}.{SERVICE_TYPE}"
 
         # Pack all interface IPs for multi-network advertisement
@@ -100,11 +103,20 @@ class ServiceDiscovery:
             },
         )
 
-        try:
-            self._zeroconf.register_service(self._service_info)
-            logger.info(f"Registered mDNS on {len(addresses)} interface(s): {', '.join(self.all_ips)}")
-        except Exception as e:
-            logger.warning(f"Service registration failed: {e}")
+        # Retry registration with exponential backoff
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                self._zeroconf.register_service(self._service_info)
+                logger.info(f"Registered mDNS on {len(addresses)} interface(s): {', '.join(self.all_ips)}")
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    delay = 2 ** attempt
+                    logger.warning(f"Service registration attempt {attempt + 1} failed: {e}, retrying in {delay}s")
+                    time.sleep(delay)
+                else:
+                    logger.warning(f"Service registration failed after {max_retries} attempts: {e}")
 
     # --- ServiceBrowser callbacks ---
 

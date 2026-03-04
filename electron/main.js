@@ -317,6 +317,19 @@ function createWindow() {
         settings.windowBounds = mainWindow.getBounds();
     });
 
+    // Restrict navigation to local server only (prevent phishing/redirect attacks)
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        const allowed = url.startsWith(SERVER_URL) ||
+                        url.startsWith('http://127.0.0.1:') ||
+                        url.startsWith('https://127.0.0.1:') ||
+                        url.startsWith('http://localhost:') ||
+                        url.startsWith('https://localhost:');
+        if (!allowed) {
+            event.preventDefault();
+            shell.openExternal(url);
+        }
+    });
+
     // Handle new window requests (open in default browser)
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
         if (url.startsWith('http')) {
