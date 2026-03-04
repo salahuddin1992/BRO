@@ -55,7 +55,8 @@ def build_server():
     hidden = [
         "eventlet", "eventlet.hubs", "eventlet.hubs.epolls", "eventlet.hubs.selects",
         "flask", "flask_socketio", "flask_cors", "flask_limiter",
-        "engineio", "engineio.async_drivers.eventlet",
+        "engineio", "engineio.async_drivers.threading",
+        "engineio.async_drivers.eventlet", "engineio.async_drivers.gevent",
         "socketio", "dns", "dns.resolver", "config",
         "server", "server.bro_server", "server.signaling",
         "network", "network.detector", "network.turn_server",
