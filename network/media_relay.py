@@ -24,6 +24,15 @@ import logging
 import threading
 import time
 
+# aiortc needs a real OS thread for its asyncio loop, not an eventlet green thread.
+# After eventlet.monkey_patch(), threading.Thread becomes a green thread.
+# Use eventlet.patcher.original() to get the real, unpatched threading module.
+try:
+    from eventlet.patcher import original as _eventlet_original
+    _real_threading = _eventlet_original('threading')
+except (ImportError, AttributeError):
+    _real_threading = threading
+
 logger = logging.getLogger("BRO.media_relay")
 
 try:
@@ -64,7 +73,7 @@ class SFUMediaBridge:
         self._thread = None
         self._relay = None          # aiortc MediaRelay instance
         self._rooms = {}            # {room_id: {sid: PeerState}}
-        self._lock = threading.Lock()
+        self._lock = _real_threading.Lock()
         self._started = False
         self._on_renegotiate = None  # callback(room_id, sid, sdp_dict)
         self._on_ice_candidate = None  # callback(room_id, sid, candidate_dict)
@@ -91,7 +100,7 @@ class SFUMediaBridge:
         self._on_renegotiate = on_renegotiate
         self._on_ice_candidate = on_ice_candidate
         self._loop = asyncio.new_event_loop()
-        self._thread = threading.Thread(
+        self._thread = _real_threading.Thread(
             target=self._run_loop, daemon=True, name="SFU-MediaRelay"
         )
         self._thread.start()

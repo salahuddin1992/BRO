@@ -24,6 +24,7 @@ zstandard>=0.22.0
 cachetools>=5.3.0
 # Notifications
 plyer>=2.1.0
+pywin32>=306; sys_platform == "win32"  # required by plyer for Windows notifications
 # Communications & Networking
 aiortc>=1.9.0
 aioice>=0.9.0
