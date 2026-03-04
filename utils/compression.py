@@ -4,8 +4,13 @@ Uses zstandard for fast file compression/decompression.
 """
 import os
 import logging
+import warnings
 
-import zstandard as zstd
+# zstandard may emit deprecation warnings about its legacy C-backend module
+# name.  Suppress them since functionality is unaffected.
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    import zstandard as zstd
 
 logger = logging.getLogger("BRO.compression")
 

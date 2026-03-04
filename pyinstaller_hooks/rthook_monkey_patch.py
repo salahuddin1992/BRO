@@ -4,6 +4,9 @@
 
 import warnings as _w
 _w.filterwarnings("ignore", message=".*Eventlet is deprecated.*")
+_w.filterwarnings("ignore", message=".*win32api.*")
+_w.filterwarnings("ignore", category=DeprecationWarning, module="zstandard")
+_w.filterwarnings("ignore", category=DeprecationWarning, module="msgpack")
 
 try:
     import eventlet as _ev

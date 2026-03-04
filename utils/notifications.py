@@ -3,15 +3,29 @@ Helen WiFi - Desktop Notifications
 Uses plyer for cross-platform desktop notifications.
 """
 import logging
+import sys
 import threading
+import warnings
 
 logger = logging.getLogger("BRO.notifications")
 
 _plyer_available = False
 try:
-    from plyer import notification as plyer_notification
+    # plyer may emit warnings about missing platform backends (e.g. win32api
+    # on non-Windows, or dbus on headless Linux).  Suppress them so they don't
+    # clutter the console – the fallback path handles unavailability gracefully.
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning)
+        warnings.filterwarnings("ignore", message=".*win32api.*")
+        warnings.filterwarnings("ignore", message=".*dbus.*")
+        from plyer import notification as plyer_notification
+    # Quick smoke-test on Windows: win32api must be importable for plyer to
+    # actually work.  On other platforms plyer uses different backends.
+    if sys.platform == "win32":
+        import importlib
+        importlib.import_module("win32api")
     _plyer_available = True
-except ImportError:
+except (ImportError, Exception):
     logger.info("plyer not available - desktop notifications disabled")
 
 

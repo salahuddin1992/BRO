@@ -8,9 +8,16 @@ Usage:
     python run.py --port 9000  # Custom port
 """
 # CRITICAL: async monkey patch MUST be first before any other import
-# Eventlet is deprecated - gevent will be used when available
+# Suppress known harmless warnings before any library is imported:
+#  - Eventlet deprecation
+#  - plyer/win32api missing backend on non-Windows
+#  - urllib3 InsecureRequestWarning (self-signed TLS in mesh)
+#  - zstandard/msgpack C-extension deprecation notices
 import warnings
 warnings.filterwarnings("ignore", message=".*Eventlet is deprecated.*")
+warnings.filterwarnings("ignore", message=".*win32api.*")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="zstandard")
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="msgpack")
 
 _async_mode = "threading"
 try:
