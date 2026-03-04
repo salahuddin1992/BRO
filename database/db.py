@@ -197,6 +197,24 @@ class Database:
                          ("عامة", "الغرفة العامة", "system"))
         conn.commit()
 
+        # Seed default user "هيلين"
+        self._seed_default_users()
+
+    def _seed_default_users(self):
+        defaults = [
+            {"username": "هيلين", "password": "2008", "display_name": "هيلين", "role": "admin"},
+        ]
+        conn = self._get_conn()
+        for u in defaults:
+            cur = conn.execute("SELECT id FROM users WHERE username=?", (u["username"],))
+            if not cur.fetchone():
+                pw_hash = generate_password_hash(u["password"])
+                conn.execute(
+                    "INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)",
+                    (u["username"], pw_hash, u["display_name"], u["role"]))
+                self.join_room_by_name("عامة", u["username"])
+        conn.commit()
+
     # ===================== Users =====================
 
     def register_user(self, username, password, display_name=None):
