@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  helen-wifi:
+    build: .
+    container_name: helen-wifi
+    restart: unless-stopped
+    ports:
+      - "8400:8400"   # HTTP/WebSocket
+      - "8401:8401"   # Mesh UDP discovery
+      - "8402:8402"   # WebSocket mesh bridge
+      - "3478:3478"   # STUN/TURN UDP
+      - "3478:3478/udp"
+      - "5349:5349"   # TURN TLS
+      - "2222:2222"   # SSH
+      - "2121:2121"   # FTP
+      - "2223:2223"   # SFTP
+    volumes:
+      - helen-data:/app/runtime
+    environment:
+      - PYTHONUNBUFFERED=1
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8400/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  helen-data:

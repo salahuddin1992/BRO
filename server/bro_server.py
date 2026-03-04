@@ -143,7 +143,8 @@ class BROServer:
                 except ImportError:
                     pass
         self.sio = SocketIO(self.app, cors_allowed_origins=_cors_origins, async_mode=_sio_mode,
-                            max_http_buffer_size=10*1024*1024, ping_timeout=60, ping_interval=25)
+                            max_http_buffer_size=10*1024*1024, ping_timeout=60, ping_interval=25,
+                            compression_threshold=1024)
 
         # Mesh + Signaling (pass all interfaces for multi-network broadcast)
         self.mesh = MeshNode(self.server_id, self.host_ip, config.SERVER_PORT, config.MESH_PORT,
@@ -188,9 +189,10 @@ class BROServer:
             host_key_file=config.SFTP_HOST_KEY
         )
 
-        # State (online sessions) - thread-safe via lock
+        # State (online sessions) - thread-safe via locks
         self._clients_lock = threading.Lock()
         self.clients = {}       # {sid: {sid, username, ip, connected_at, status}}
+        self._tokens_lock = threading.Lock()
         self.auth_tokens = {}   # {token: {username, created_at}}  - session persistence
         self._TOKEN_TTL = 7 * 24 * 3600  # 7 days
         self.logs = []
@@ -261,24 +263,27 @@ class BROServer:
     def _gen_token(self, username):
         raw = f"{username}:{config.SECRET_KEY}:{uuid.uuid4().hex}"
         token = hmac.new(config.SECRET_KEY.encode(), raw.encode(), hashlib.sha256).hexdigest()
-        self.auth_tokens[token] = {"username": username, "created_at": time.time()}
-        self._cleanup_tokens()
+        with self._tokens_lock:
+            self.auth_tokens[token] = {"username": username, "created_at": time.time()}
+            self._cleanup_tokens_unlocked()
         return token
 
-    def _cleanup_tokens(self):
+    def _cleanup_tokens_unlocked(self):
+        """Cleanup expired tokens. Caller must hold _tokens_lock."""
         now = time.time()
         expired = [t for t, v in self.auth_tokens.items() if now - v["created_at"] > self._TOKEN_TTL]
         for t in expired:
             del self.auth_tokens[t]
 
     def _get_token_user(self, token):
-        info = self.auth_tokens.get(token)
-        if not info:
-            return None
-        if time.time() - info["created_at"] > self._TOKEN_TTL:
-            del self.auth_tokens[token]
-            return None
-        return info["username"]
+        with self._tokens_lock:
+            info = self.auth_tokens.get(token)
+            if not info:
+                return None
+            if time.time() - info["created_at"] > self._TOKEN_TTL:
+                del self.auth_tokens[token]
+                return None
+            return info["username"]
 
     def _check_rate(self, ip):
         now = time.time()
@@ -297,6 +302,21 @@ class BROServer:
             return False
         self._msg_rate[sid].append(now)
         return True
+
+    def _cleanup_rate_limit_entries(self):
+        """Remove stale entries from _auth_attempts and _msg_rate."""
+        now = time.time()
+        # Cleanup auth attempts older than window
+        stale_ips = [ip for ip, times in self._auth_attempts.items()
+                     if not any(now - t < self._AUTH_WINDOW for t in times)]
+        for ip in stale_ips:
+            del self._auth_attempts[ip]
+        # Cleanup msg rate for disconnected sids
+        with self._clients_lock:
+            active_sids = set(self.clients.keys())
+        stale_sids = [sid for sid in self._msg_rate if sid not in active_sids]
+        for sid in stale_sids:
+            del self._msg_rate[sid]
 
     def _cleanup_stale_connections(self):
         """Remove connections that have been unauthenticated for too long."""
@@ -356,7 +376,7 @@ class BROServer:
         return w
 
     def _setup_routes(self):
-        # Security headers
+        # Security headers + cache headers for static files
         @self.app.after_request
         def _set_security_headers(response):
             response.headers["X-Content-Type-Options"] = "nosniff"
@@ -377,7 +397,79 @@ class BROServer:
                 "connect-src 'self' ws: wss:; "
                 "font-src 'self';"
             )
+            # CDN/cache headers for static files
+            if request.path.startswith("/static/"):
+                response.headers["Cache-Control"] = "public, max-age=86400"  # 24 hours
             return response
+
+        # Prometheus-compatible metrics endpoint
+        @self.app.route("/api/metrics")
+        def prometheus_metrics():
+            uptime = int((datetime.utcnow() - self.start_time).total_seconds())
+            try:
+                sys_stats = get_system_stats()
+                proc_stats = get_process_stats()
+            except Exception:
+                sys_stats = {}
+                proc_stats = {}
+            lines = [
+                "# HELP helen_uptime_seconds Server uptime in seconds",
+                "# TYPE helen_uptime_seconds gauge",
+                f"helen_uptime_seconds {uptime}",
+                "# HELP helen_clients_connected Currently connected clients",
+                "# TYPE helen_clients_connected gauge",
+                f"helen_clients_connected {len(self.clients)}",
+                "# HELP helen_registered_users Total registered users",
+                "# TYPE helen_registered_users gauge",
+                f"helen_registered_users {self.db.count_users()}",
+                "# HELP helen_messages_total Total messages",
+                "# TYPE helen_messages_total gauge",
+                f"helen_messages_total {self.db.count_messages()}",
+                "# HELP helen_files_total Total files",
+                "# TYPE helen_files_total gauge",
+                f"helen_files_total {self.db.count_files()}",
+            ]
+            if sys_stats:
+                lines += [
+                    "# HELP helen_cpu_percent System CPU usage percent",
+                    "# TYPE helen_cpu_percent gauge",
+                    f"helen_cpu_percent {sys_stats.get('cpu_percent', 0)}",
+                    "# HELP helen_memory_used_bytes System memory used bytes",
+                    "# TYPE helen_memory_used_bytes gauge",
+                    f"helen_memory_used_bytes {sys_stats.get('memory', {}).get('used', 0)}",
+                    "# HELP helen_disk_used_bytes Disk used bytes",
+                    "# TYPE helen_disk_used_bytes gauge",
+                    f"helen_disk_used_bytes {sys_stats.get('disk', {}).get('used', 0)}",
+                ]
+            if proc_stats:
+                lines += [
+                    "# HELP helen_process_memory_bytes Process RSS memory",
+                    "# TYPE helen_process_memory_bytes gauge",
+                    f"helen_process_memory_bytes {int(proc_stats.get('memory_mb', 0) * 1048576)}",
+                    "# HELP helen_process_threads Process thread count",
+                    "# TYPE helen_process_threads gauge",
+                    f"helen_process_threads {proc_stats.get('threads', 0)}",
+                ]
+            from flask import Response
+            return Response("\n".join(lines) + "\n", mimetype="text/plain; version=0.0.4")
+
+        # Health check endpoint
+        @self.app.route("/api/health")
+        def health_check():
+            uptime = int((datetime.utcnow() - self.start_time).total_seconds())
+            try:
+                db_ok = self.db.count_users() >= 0
+            except Exception:
+                db_ok = False
+            status = "healthy" if db_ok else "degraded"
+            code = 200 if db_ok else 503
+            return jsonify({
+                "status": status,
+                "uptime": uptime,
+                "server_id": self.server_id,
+                "database": "ok" if db_ok else "error",
+                "clients_connected": len(self.clients),
+            }), code
 
         @self.app.route("/")
         def index():
@@ -503,11 +595,13 @@ class BROServer:
         @self._require_admin
         def api_ban_user(username):
             self.db.ban_user(username)
-            for sid, cl in list(self.clients.items()):
-                if cl.get("username") == username:
-                    self.sio.emit("force_disconnect", {"reason": "تم حظرك"}, room=sid)
-                    self.sio.server.disconnect(sid, namespace="/")
-            self.auth_tokens = {t: v for t, v in self.auth_tokens.items() if v["username"] != username}
+            with self._clients_lock:
+                for sid, cl in list(self.clients.items()):
+                    if cl.get("username") == username:
+                        self.sio.emit("force_disconnect", {"reason": "تم حظرك"}, room=sid)
+                        self.sio.server.disconnect(sid, namespace="/")
+            with self._tokens_lock:
+                self.auth_tokens = {t: v for t, v in self.auth_tokens.items() if v["username"] != username}
             self._log(f"Admin banned: {username}", "warning")
             self._broadcast_users()
             return jsonify({"status": "ok"})
@@ -522,21 +616,24 @@ class BROServer:
         @self.app.route("/api/admin/users/<username>/kick", methods=["POST"])
         @self._require_admin
         def api_kick_user(username):
-            for sid, cl in list(self.clients.items()):
-                if cl.get("username") == username:
-                    self.sio.emit("force_disconnect", {"reason": "تم طردك"}, room=sid)
-                    self.sio.server.disconnect(sid, namespace="/")
+            with self._clients_lock:
+                for sid, cl in list(self.clients.items()):
+                    if cl.get("username") == username:
+                        self.sio.emit("force_disconnect", {"reason": "تم طردك"}, room=sid)
+                        self.sio.server.disconnect(sid, namespace="/")
             self._log(f"Admin kicked: {username}", "warning")
             return jsonify({"status": "ok"})
 
         @self.app.route("/api/admin/users/<username>/delete", methods=["DELETE"])
         @self._require_admin
         def api_delete_user(username):
-            for sid, cl in list(self.clients.items()):
-                if cl.get("username") == username:
-                    self.sio.emit("force_disconnect", {"reason": "تم حذف حسابك"}, room=sid)
-                    self.sio.server.disconnect(sid, namespace="/")
-            self.auth_tokens = {t: v for t, v in self.auth_tokens.items() if v["username"] != username}
+            with self._clients_lock:
+                for sid, cl in list(self.clients.items()):
+                    if cl.get("username") == username:
+                        self.sio.emit("force_disconnect", {"reason": "تم حذف حسابك"}, room=sid)
+                        self.sio.server.disconnect(sid, namespace="/")
+            with self._tokens_lock:
+                self.auth_tokens = {t: v for t, v in self.auth_tokens.items() if v["username"] != username}
             self.db.delete_user(username)
             self._log(f"Admin deleted user: {username}", "warning")
             self._broadcast_users()
@@ -889,6 +986,21 @@ class BROServer:
                 return jsonify({"error": "مسار غير مسموح"}), 403
             if not os.path.isfile(fpath):
                 return jsonify({"error": "الملف غير موجود"}), 404
+            # Decrypt if file was encrypted at upload
+            conn = self.db._get_conn()
+            file_row = conn.execute("SELECT encrypted, name FROM files WHERE saved_as=?", (safe,)).fetchone()
+            if file_row and file_row["encrypted"]:
+                try:
+                    import tempfile
+                    key = config.FILE_ENCRYPTION_KEY.encode()[:32].ljust(32, b'\0')
+                    dec_path = os.path.join(tempfile.gettempdir(), f"dec_{safe}")
+                    crypto_decrypt_file(key, fpath, dec_path)
+                    from flask import send_file
+                    return send_file(dec_path, as_attachment=True,
+                                     download_name=file_row["name"] or safe)
+                except Exception as e:
+                    logger.warning(f"File decryption failed for {safe}: {e}")
+                    # Fall through to serve as-is
             return send_from_directory(config.UPLOAD_FOLDER, safe, as_attachment=True)
 
         @self.app.route("/api/recording/<filename>")
@@ -950,6 +1062,10 @@ class BROServer:
                 return jsonify({"error": "اسم ملف غير صالح"}), 400
             thumb_name = f"thumb_{safe}"
             thumb_path = os.path.join(self.thumb_dir, thumb_name)
+            # Path traversal protection
+            real_path = os.path.realpath(thumb_path)
+            if not real_path.startswith(os.path.realpath(self.thumb_dir)):
+                return jsonify({"error": "مسار غير مسموح"}), 403
             if os.path.isfile(thumb_path):
                 return send_from_directory(self.thumb_dir, thumb_name)
             return jsonify({"error": "الصورة المصغرة غير موجودة"}), 404
@@ -968,6 +1084,10 @@ class BROServer:
             if not safe or safe != filename:
                 return jsonify({"error": "اسم ملف غير صالح"}), 400
             fpath = os.path.join(config.UPLOAD_FOLDER, safe)
+            # Path traversal protection
+            real_path = os.path.realpath(fpath)
+            if not real_path.startswith(os.path.realpath(config.UPLOAD_FOLDER)):
+                return jsonify({"error": "مسار غير مسموح"}), 403
             if not os.path.isfile(fpath):
                 return jsonify({"error": "الملف غير موجود"}), 404
             # Serve inline (not as attachment) for preview
@@ -1227,12 +1347,13 @@ class BROServer:
         @self.sio.on("connect")
         def on_connect():
             sid = request.sid
-            self.clients[sid] = {
-                "sid": sid, "username": None,
-                "ip": request.remote_addr,
-                "connected_at": datetime.utcnow().isoformat(),
-                "status": "online",
-            }
+            with self._clients_lock:
+                self.clients[sid] = {
+                    "sid": sid, "username": None,
+                    "ip": request.remote_addr,
+                    "connected_at": datetime.utcnow().isoformat(),
+                    "status": "online",
+                }
             # Full ICE config: STUN + TURN (UDP/TCP/TLS) with credentials
             ice_config = self.turn_server.get_ice_server_config(self.host_ip)
             # Add STUN on all other interfaces
@@ -1251,7 +1372,8 @@ class BROServer:
         @self.sio.on("disconnect")
         def on_disconnect():
             sid = request.sid
-            client = self.clients.pop(sid, {})
+            with self._clients_lock:
+                client = self.clients.pop(sid, {})
             name = client.get("username")
             if name:
                 still_online = any(c.get("username") == name for c in self.clients.values())
@@ -1384,7 +1506,8 @@ class BROServer:
         def on_logout(data):
             sid = request.sid
             token = data.get("token", "")
-            self.auth_tokens.pop(token, None)
+            with self._tokens_lock:
+                self.auth_tokens.pop(token, None)
             client = self.clients.get(sid, {})
             name = client.get("username")
             if name:
@@ -2221,6 +2344,7 @@ class BROServer:
                     time.sleep(60)
                 try:
                     self._cleanup_stale_connections()
+                    self._cleanup_rate_limit_entries()
                 except Exception:
                     pass
         _cleanup_t = threading.Thread(target=_stale_cleanup_loop, daemon=True)

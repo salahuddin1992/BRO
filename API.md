@@ -3,7 +3,7 @@
 Complete reference for all REST API endpoints and Socket.IO events.
 
 **Base URL:** `http://<server-ip>:<port>`
-**Default Port:** 7777
+**Default Port:** 8400
 **Protocol:** HTTP + WebSocket (Socket.IO)
 
 ---
@@ -119,7 +119,7 @@ Returns comprehensive server statistics.
   "server_id": "abc123def456",
   "uptime": 3600,
   "host_ip": "192.168.1.100",
-  "port": 7777,
+  "port": 8400,
   "is_fiber": false,
   "clients_count": 5,
   "clients": [{"sid": "...", "username": "user1", "ip": "...", "status": "online"}],
@@ -396,6 +396,31 @@ List shared files.
 
 ---
 
+### Health & Monitoring
+
+#### `GET /api/health`
+Health check endpoint. Returns server status.
+
+- **Response (200):**
+```json
+{
+  "status": "healthy",
+  "uptime": 3600,
+  "server_id": "abc123def456",
+  "database": "ok",
+  "clients_connected": 5
+}
+```
+
+- **Response (503):** `{"status": "degraded", "database": "error", ...}`
+
+#### `GET /api/metrics`
+Prometheus-compatible metrics endpoint. Returns metrics in text/plain format.
+
+- **Response:** Text format with metrics like `helen_uptime_seconds`, `helen_clients_connected`, `helen_cpu_percent`, etc.
+
+---
+
 ### Configuration
 
 #### `GET /api/ice-config`
@@ -427,8 +452,8 @@ Get server info for mesh peering.
 {
   "server_id": "abc123def456",
   "host": "192.168.1.100",
-  "port": 7777,
-  "mesh_port": 7778
+  "port": 8400,
+  "mesh_port": 8401
 }
 ```
 

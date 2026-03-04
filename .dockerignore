@@ -1,0 +1,13 @@
+__pycache__
+*.pyc
+.git
+.gitignore
+node_modules
+electron/node_modules
+runtime/
+*.db
+*.log
+.env
+*.egg-info
+dist/
+build/

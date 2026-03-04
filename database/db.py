@@ -34,6 +34,10 @@ class Database:
     def __init__(self, db_path):
         self.db_path = db_path
         self._local = threading.local()
+        # Connection pool for multi-threaded access
+        self._pool_lock = threading.Lock()
+        self._pool = []
+        self._pool_max = 10
         # Caches: TTL in seconds, maxsize = max entries
         self._user_cache = TTLCache(maxsize=200, ttl=60)        # user lookups: 60s
         self._rooms_cache = TTLCache(maxsize=50, ttl=30)        # rooms list: 30s
@@ -42,11 +46,28 @@ class Database:
 
     def _get_conn(self):
         if not hasattr(self._local, "conn") or self._local.conn is None:
+            # Try to reuse a pooled connection
+            with self._pool_lock:
+                if self._pool:
+                    self._local.conn = self._pool.pop()
+                    return self._local.conn
             self._local.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self._local.conn.row_factory = sqlite3.Row
             self._local.conn.execute("PRAGMA journal_mode=WAL")
             self._local.conn.execute("PRAGMA foreign_keys=ON")
+            self._local.conn.execute("PRAGMA busy_timeout=5000")
         return self._local.conn
+
+    def _return_conn(self, conn):
+        """Return a connection to the pool."""
+        with self._pool_lock:
+            if len(self._pool) < self._pool_max:
+                self._pool.append(conn)
+            else:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     def _init_db(self):
         conn = self._get_conn()
@@ -174,6 +195,29 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by);
             CREATE INDEX IF NOT EXISTS idx_room_members_username ON room_members(username);
         """)
+        # FTS5 virtual table for full-text message search
+        try:
+            conn.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                    text, content='messages', content_rowid='id'
+                )
+            """)
+            # Triggers to keep FTS in sync
+            conn.executescript("""
+                CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+                    INSERT INTO messages_fts(rowid, text) VALUES (new.id, new.text);
+                END;
+                CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+                    INSERT INTO messages_fts(messages_fts, rowid, text) VALUES('delete', old.id, old.text);
+                END;
+                CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+                    INSERT INTO messages_fts(messages_fts, rowid, text) VALUES('delete', old.id, old.text);
+                    INSERT INTO messages_fts(rowid, text) VALUES (new.id, new.text);
+                END;
+            """)
+        except Exception as e:
+            logger.warning(f"FTS5 setup skipped (may not be available): {e}")
+
         # Add columns if upgrading from older schema
         for col_sql in [
             "ALTER TABLE users ADD COLUMN banned INTEGER DEFAULT 0",
@@ -197,37 +241,8 @@ class Database:
                          ("عامة", "الغرفة العامة", "system"))
         conn.commit()
 
-        # Seed default user "هيلين"
-        self._seed_default_users()
-
-    def _seed_default_users(self):
-        defaults = [
-            # هيلين
-            {"username": "هيلين", "password": "2008", "display_name": "هيلين", "role": "admin"},
-            # Admin
-            {"username": "GeneralManager", "password": "admin123", "display_name": "المدير العام", "role": "admin"},
-            {"username": "DeputyManager", "password": "admin123", "display_name": "نائب المدير", "role": "admin"},
-            # Moderator
-            {"username": "IT_Director", "password": "mod12345", "display_name": "مدير قسم التقنية", "role": "moderator"},
-            {"username": "HR_Director", "password": "mod12345", "display_name": "مدير الموارد البشرية", "role": "moderator"},
-            {"username": "Support_Lead", "password": "mod12345", "display_name": "مشرف الدعم الفني", "role": "moderator"},
-            # User
-            {"username": "Sales_Head", "password": "user1234", "display_name": "رئيس قسم المبيعات", "role": "user"},
-            {"username": "Marketing_Head", "password": "user1234", "display_name": "رئيس قسم التسويق", "role": "user"},
-            {"username": "Finance_Head", "password": "user1234", "display_name": "رئيس القسم المالي", "role": "user"},
-            {"username": "ProjectCoordinator", "password": "user1234", "display_name": "منسق المشاريع", "role": "user"},
-            {"username": "AdminSecretary", "password": "user1234", "display_name": "سكرتير الإدارة", "role": "user"},
-        ]
-        conn = self._get_conn()
-        for u in defaults:
-            cur = conn.execute("SELECT id FROM users WHERE username=?", (u["username"],))
-            if not cur.fetchone():
-                pw_hash = generate_password_hash(u["password"])
-                conn.execute(
-                    "INSERT INTO users (username, password_hash, display_name, role) VALUES (?, ?, ?, ?)",
-                    (u["username"], pw_hash, u["display_name"], u["role"]))
-                self.join_room_by_name("عامة", u["username"])
-        conn.commit()
+        # NOTE: Default users removed for security.
+        # All users must register through the client or be created by admin.
 
     # ===================== Users =====================
 
@@ -552,8 +567,24 @@ class Database:
             conn.execute("UPDATE messages SET deleted=1 WHERE id=?", (msg_id,))
         conn.commit()
 
+    def _fts5_available(self):
+        """Check if FTS5 table exists."""
+        try:
+            conn = self._get_conn()
+            conn.execute("SELECT 1 FROM messages_fts LIMIT 1")
+            return True
+        except Exception:
+            return False
+
     def search_messages(self, query, room_id=None, username=None, limit=30):
         conn = self._get_conn()
+        # Try FTS5 first for faster search
+        if self._fts5_available():
+            try:
+                return self._search_messages_fts(conn, query, room_id, username, limit)
+            except Exception:
+                pass  # Fall back to LIKE
+        # Fallback: LIKE search
         q = f"%{query}%"
         if room_id:
             rows = conn.execute(
@@ -574,6 +605,40 @@ class Database:
             rows = conn.execute(
                 "SELECT id, sender, text, room_id, timestamp FROM messages WHERE text LIKE ? AND deleted=0 ORDER BY id DESC LIMIT ?",
                 (q, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+    def _search_messages_fts(self, conn, query, room_id, username, limit):
+        """Full-text search using FTS5."""
+        # Escape special FTS5 characters
+        fts_query = query.replace('"', '""')
+        fts_query = f'"{fts_query}"'
+        if room_id:
+            rows = conn.execute(
+                "SELECT m.id, m.sender, m.text, m.room_id, m.timestamp FROM messages m "
+                "JOIN messages_fts ON m.id = messages_fts.rowid "
+                "WHERE messages_fts MATCH ? AND m.room_id=? AND m.deleted=0 ORDER BY m.id DESC LIMIT ?",
+                (fts_query, room_id, limit)).fetchall()
+        elif username:
+            user_rooms = [r["id"] for r in self.get_user_rooms(username)]
+            if user_rooms:
+                placeholders = ",".join("?" for _ in user_rooms)
+                rows = conn.execute(
+                    f"SELECT m.id, m.sender, m.text, m.room_id, m.timestamp FROM messages m "
+                    f"JOIN messages_fts ON m.id = messages_fts.rowid "
+                    f"WHERE messages_fts MATCH ? AND m.deleted=0 AND (m.room_id IN ({placeholders}) OR m.sender=? OR m.target=?) ORDER BY m.id DESC LIMIT ?",
+                    [fts_query] + user_rooms + [username, username, limit]).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT m.id, m.sender, m.text, m.room_id, m.timestamp FROM messages m "
+                    "JOIN messages_fts ON m.id = messages_fts.rowid "
+                    "WHERE messages_fts MATCH ? AND m.deleted=0 AND (m.sender=? OR m.target=?) ORDER BY m.id DESC LIMIT ?",
+                    (fts_query, username, username, limit)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT m.id, m.sender, m.text, m.room_id, m.timestamp FROM messages m "
+                "JOIN messages_fts ON m.id = messages_fts.rowid "
+                "WHERE messages_fts MATCH ? AND m.deleted=0 ORDER BY m.id DESC LIMIT ?",
+                (fts_query, limit)).fetchall()
         return [dict(r) for r in rows]
 
     def get_all_messages(self, limit=100):
@@ -786,10 +851,25 @@ class Database:
         return {"filename": backup_name, "size": size, "created_at": ts}
 
     def restore_backup(self, backup_dir, backup_name):
-        """Restore database from a backup file."""
+        """Restore database from a backup file. Creates a safety backup of the current DB first."""
         backup_path = os.path.join(backup_dir, backup_name)
         if not os.path.isfile(backup_path):
             return False
+
+        # Safety: backup current DB before overwriting
+        try:
+            ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            safety_name = f"pre_restore_{ts}.db"
+            safety_path = os.path.join(backup_dir, safety_name)
+            conn = self._get_conn()
+            safety_conn = sqlite3.connect(safety_path)
+            conn.backup(safety_conn)
+            safety_conn.close()
+            self.save_backup_record(safety_name, os.path.getsize(safety_path),
+                                    "نسخة أمان تلقائية قبل الاستعادة")
+            logger.info(f"Safety backup created before restore: {safety_name}")
+        except Exception as e:
+            logger.warning(f"Could not create safety backup: {e}")
 
         # Close current connection
         if hasattr(self._local, "conn") and self._local.conn:
