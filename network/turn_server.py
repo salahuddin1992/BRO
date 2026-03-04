@@ -23,6 +23,7 @@ logger = logging.getLogger("BRO.turn")
 STUN_PORT = 3478
 TURN_TLS_PORT = 5349
 TURN_443_PORT = 443
+TURN_443_FALLBACK_PORT = 8443  # fallback when 443 requires elevated privileges
 
 MAGIC_COOKIE = 0x2112A442
 MAGIC_BYTES = MAGIC_COOKIE.to_bytes(4, "big")
@@ -222,14 +223,23 @@ class LocalTurnServer:
             self._threads.append(t3)
             logger.info(f"TURN/TLS listener on {self.host}:{TURN_TLS_PORT}")
 
-            # TLS listener on 443 (firewall bypass)
+            # TLS listener on 443 (firewall bypass), fallback to 8443 if no permission
+            self._turn_443_actual_port = TURN_443_PORT
             try:
                 t4 = threading.Thread(target=self._run_tcp, args=(TURN_443_PORT, True), daemon=True)
                 t4.start()
                 self._threads.append(t4)
                 logger.info(f"TURN/TLS-443 listener on {self.host}:{TURN_443_PORT}")
             except Exception as e:
-                logger.warning(f"Could not bind TURN on port 443: {e}")
+                logger.warning(f"Could not bind TURN on port 443: {e} — trying {TURN_443_FALLBACK_PORT}")
+                try:
+                    self._turn_443_actual_port = TURN_443_FALLBACK_PORT
+                    t4 = threading.Thread(target=self._run_tcp, args=(TURN_443_FALLBACK_PORT, True), daemon=True)
+                    t4.start()
+                    self._threads.append(t4)
+                    logger.info(f"TURN/TLS-443 fallback listener on {self.host}:{TURN_443_FALLBACK_PORT}")
+                except Exception as e2:
+                    logger.warning(f"TURN 443 fallback also failed: {e2}")
 
         # Cleanup thread for expired allocations
         tc = threading.Thread(target=self._cleanup_loop, daemon=True)
@@ -855,8 +865,8 @@ class LocalTurnServer:
                 # TURN TLS on 5349
                 {"urls": f"turns:{server_ip}:{TURN_TLS_PORT}?transport=tcp",
                  "username": turn_user, "credential": turn_pass},
-                # TURN TLS on 443 (firewall bypass)
-                {"urls": f"turns:{server_ip}:{TURN_443_PORT}?transport=tcp",
+                # TURN TLS on 443 (firewall bypass) — uses actual bound port
+                {"urls": f"turns:{server_ip}:{getattr(self, '_turn_443_actual_port', TURN_443_PORT)}?transport=tcp",
                  "username": turn_user, "credential": turn_pass},
             ])
 

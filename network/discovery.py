@@ -8,6 +8,15 @@ import threading
 import socket
 import time
 
+# zeroconf uses asyncio internally. After eventlet.monkey_patch(),
+# threading.Thread becomes a green thread which conflicts with asyncio.
+# Use the real OS threading for zeroconf operations.
+try:
+    from eventlet.patcher import original as _eventlet_original
+    _real_threading = _eventlet_original('threading')
+except (ImportError, AttributeError):
+    _real_threading = threading
+
 from zeroconf import ServiceBrowser, ServiceInfo, Zeroconf, IPVersion
 
 logger = logging.getLogger("BRO.discovery")
@@ -160,8 +169,7 @@ class ServiceDiscovery:
             except Exception:
                 pass
 
-        import threading as _threading
-        t = _threading.Thread(target=_fetch, daemon=True)
+        t = _real_threading.Thread(target=_fetch, daemon=True)
         t.start()
         t.join(timeout=5)
         return result[0]

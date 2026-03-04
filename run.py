@@ -58,6 +58,15 @@ BASE_PATH = get_base_path()
 RUNTIME_PATH = get_runtime_path()
 sys.path.insert(0, BASE_PATH)
 
+# In --onefile mode, av (PyAV/FFmpeg) DLLs are extracted to sys._MEIPASS.
+# Windows needs them on the DLL search path or av will fail to import.
+if getattr(sys, 'frozen', False) and sys.platform == 'win32':
+    try:
+        os.add_dll_directory(BASE_PATH)
+    except (OSError, AttributeError):
+        # add_dll_directory requires Python 3.8+; fall back to PATH
+        os.environ['PATH'] = BASE_PATH + os.pathsep + os.environ.get('PATH', '')
+
 # Set environment for config module
 os.environ["BRO_BASE_PATH"] = BASE_PATH
 os.environ["BRO_RUNTIME_PATH"] = RUNTIME_PATH
