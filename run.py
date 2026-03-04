@@ -46,10 +46,38 @@ def get_base_path():
 
 
 def get_runtime_path():
-    """Get runtime path for writable files (uploads, logs)."""
+    """Get runtime path for writable files (uploads, logs, DB, certs).
+
+    When running as a frozen EXE the executable's directory may be
+    read-only (e.g. Program Files, Electron resources).  Use a known
+    writable location instead.
+    """
+    # Allow explicit override via environment variable
+    env_override = os.environ.get("BRO_RUNTIME_PATH")
+    if env_override:
+        os.makedirs(env_override, exist_ok=True)
+        return env_override
+
     if getattr(sys, 'frozen', False):
-        # EXE: use the folder where the .exe is located
-        return os.path.dirname(sys.executable)
+        # First try the EXE's own directory (portable mode)
+        exe_dir = os.path.dirname(sys.executable)
+        try:
+            _test = os.path.join(exe_dir, ".write_test")
+            with open(_test, "w") as f:
+                f.write("ok")
+            os.remove(_test)
+            return exe_dir
+        except OSError:
+            pass
+        # Fallback to a writable user-local directory
+        if os.name == "nt":
+            base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+            p = os.path.join(base, "HelenWiFi")
+        else:
+            p = os.path.join(os.path.expanduser("~"), ".helenwifi")
+        os.makedirs(p, exist_ok=True)
+        return p
+
     return os.path.dirname(os.path.abspath(__file__))
 
 
