@@ -133,6 +133,11 @@ def build_server():
         "limits", "limits.storage", "limits.strategies",
         # --- Networking ---
         "zeroconf", "requests",
+        # --- FTP server ---
+        "pyftpdlib", "pyftpdlib.authorizers", "pyftpdlib.handlers",
+        "pyftpdlib.servers", "pyftpdlib.filesystems",
+        # --- Windows notifications (plyer backend) ---
+        "win32api", "win32con", "pywintypes", "win32gui",
         # --- python-magic ---
         "magic",
     ]
