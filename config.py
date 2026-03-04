@@ -129,7 +129,32 @@ FILE_ENCRYPTION_KEY = os.environ.get("BRO_FILE_KEY", SECRET_KEY[:32])
 FILE_TTL_DAYS = int(os.environ.get("BRO_FILE_TTL", "0"))  # 0 = no expiry
 
 # Database
-DB_PATH = os.path.join(RUNTIME_PATH, "helen_wifi.db")
+# On Windows, RUNTIME_PATH (exe directory) may be inside a protected folder
+# (e.g. Program Files).  Fall back to %LOCALAPPDATA%/HelenWiFi if the
+# runtime directory is not writable, so SQLite can always open the DB.
+def _resolve_db_path():
+    candidate = os.path.join(RUNTIME_PATH, "helen_wifi.db")
+    # If the DB already exists, use it (user chose this location)
+    if os.path.isfile(candidate):
+        return candidate
+    # Check if we can write to RUNTIME_PATH
+    try:
+        _test = os.path.join(RUNTIME_PATH, ".write_test")
+        with open(_test, "w") as f:
+            f.write("ok")
+        os.remove(_test)
+        return candidate
+    except OSError:
+        pass
+    # Fallback: platform-appropriate writable directory
+    if os.name == "nt":
+        fallback = os.path.join(os.environ.get("LOCALAPPDATA", RUNTIME_PATH), "HelenWiFi")
+    else:
+        fallback = os.path.join(os.path.expanduser("~"), ".helenwifi")
+    os.makedirs(fallback, exist_ok=True)
+    return os.path.join(fallback, "helen_wifi.db")
+
+DB_PATH = _resolve_db_path()
 
 # WebRTC ICE Servers
 # Local-only: no external STUN servers needed - uses local STUN on port 3478
@@ -170,13 +195,14 @@ def _ensure_tls_certs():
         subject = issuer = x509.Name([
             x509.NameAttribute(NameOID.COMMON_NAME, "Helen WiFi Local"),
         ])
+        _now = datetime.datetime.now(datetime.timezone.utc)
         cert = (x509.CertificateBuilder()
                 .subject_name(subject)
                 .issuer_name(issuer)
                 .public_key(key.public_key())
                 .serial_number(x509.random_serial_number())
-                .not_valid_before(datetime.datetime.utcnow())
-                .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=365))
+                .not_valid_before(_now)
+                .not_valid_after(_now + datetime.timedelta(days=365))
                 .add_extension(x509.SubjectAlternativeName([
                     x509.DNSName("localhost"),
                     x509.IPAddress(ipaddress.ip_address("127.0.0.1")),

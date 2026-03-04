@@ -124,16 +124,23 @@ class BROServer:
         self.is_fiber = self.detector.has_fiber()
 
         # SocketIO (allow private network origins) - detect async mode
+        # Pre-import the matching engineio async driver so SocketIO doesn't
+        # emit "async_mode … is not available" warnings at startup.
         _sio_mode = "threading"
         try:
             import eventlet  # noqa: F401
+            import engineio.async_drivers.eventlet  # noqa: F401
             _sio_mode = "eventlet"
         except ImportError:
             try:
                 import gevent  # noqa: F401
+                import engineio.async_drivers.gevent  # noqa: F401
                 _sio_mode = "gevent"
             except ImportError:
-                pass
+                try:
+                    import engineio.async_drivers.threading  # noqa: F401
+                except ImportError:
+                    pass
         self.sio = SocketIO(self.app, cors_allowed_origins=_cors_origins, async_mode=_sio_mode,
                             max_http_buffer_size=10*1024*1024, ping_timeout=60, ping_interval=25)
 

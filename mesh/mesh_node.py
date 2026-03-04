@@ -14,10 +14,20 @@ import json
 import threading
 import time
 import logging
+import warnings
 from datetime import datetime
 
-import msgpack
+# msgpack may emit DeprecationWarning about the old fallback-pure-Python path;
+# suppress so it doesn't clutter the console (the C extension works fine).
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=DeprecationWarning)
+    import msgpack
+
 import requests
+# Self-signed TLS certs → every mesh HTTP call uses verify=False.
+# Suppress the resulting InsecureRequestWarning to keep logs clean.
+import urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
