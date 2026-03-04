@@ -43,41 +43,72 @@ def derive_shared_key(private_key, peer_public_b64):
     return derived
 
 
-def encrypt(key, plaintext):
-    """Encrypt plaintext with AES-256-GCM. Returns base64(nonce + ciphertext)."""
+def encrypt(key, plaintext, aad=None):
+    """Encrypt plaintext with AES-256-GCM. Returns base64(nonce + ciphertext).
+
+    Args:
+        key: 32-byte AES key
+        plaintext: string to encrypt
+        aad: optional Associated Authenticated Data (e.g. sender+receiver ID)
+             for context binding - authenticated but not encrypted.
+    """
     nonce = os.urandom(NONCE_SIZE)
     aesgcm = AESGCM(key)
-    ct = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
+    aad_bytes = aad.encode("utf-8") if isinstance(aad, str) else aad
+    ct = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), aad_bytes)
     return base64.b64encode(nonce + ct).decode()
 
 
-def decrypt(key, ciphertext_b64):
-    """Decrypt base64(nonce + ciphertext) with AES-256-GCM."""
+def decrypt(key, ciphertext_b64, aad=None):
+    """Decrypt base64(nonce + ciphertext) with AES-256-GCM.
+
+    Args:
+        key: 32-byte AES key
+        ciphertext_b64: base64-encoded nonce+ciphertext
+        aad: must match the AAD used during encryption, or decryption fails.
+    """
     raw = base64.b64decode(ciphertext_b64)
     nonce = raw[:NONCE_SIZE]
     ct = raw[NONCE_SIZE:]
     aesgcm = AESGCM(key)
-    return aesgcm.decrypt(nonce, ct, None).decode("utf-8")
+    aad_bytes = aad.encode("utf-8") if isinstance(aad, str) else aad
+    return aesgcm.decrypt(nonce, ct, aad_bytes).decode("utf-8")
 
 
-def encrypt_file(key, input_path, output_path):
-    """Encrypt a file with AES-256-GCM."""
+def encrypt_file(key, input_path, output_path, aad=None):
+    """Encrypt a file with AES-256-GCM.
+
+    Args:
+        key: 32-byte AES key
+        input_path: path to plaintext file
+        output_path: path to write encrypted file
+        aad: optional Associated Authenticated Data for context binding
+    """
     nonce = os.urandom(NONCE_SIZE)
     aesgcm = AESGCM(key)
+    aad_bytes = aad.encode("utf-8") if isinstance(aad, str) else aad
     with open(input_path, "rb") as f:
         data = f.read()
-    ct = aesgcm.encrypt(nonce, data, None)
+    ct = aesgcm.encrypt(nonce, data, aad_bytes)
     with open(output_path, "wb") as f:
         f.write(nonce + ct)
 
 
-def decrypt_file(key, input_path, output_path):
-    """Decrypt a file encrypted with encrypt_file."""
+def decrypt_file(key, input_path, output_path, aad=None):
+    """Decrypt a file encrypted with encrypt_file.
+
+    Args:
+        key: 32-byte AES key
+        input_path: path to encrypted file
+        output_path: path to write decrypted file
+        aad: must match the AAD used during encryption
+    """
     with open(input_path, "rb") as f:
         raw = f.read()
     nonce = raw[:NONCE_SIZE]
     ct = raw[NONCE_SIZE:]
     aesgcm = AESGCM(key)
-    data = aesgcm.decrypt(nonce, ct, None)
+    aad_bytes = aad.encode("utf-8") if isinstance(aad, str) else aad
+    data = aesgcm.decrypt(nonce, ct, aad_bytes)
     with open(output_path, "wb") as f:
         f.write(data)

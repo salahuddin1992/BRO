@@ -45,6 +45,7 @@ from utils.compression import should_compress, compress_file
 from utils.notifications import (notify_server_started, notify_new_message,
                                  notify_incoming_call, notify_file_shared)
 from utils.crypto import encrypt_file as crypto_encrypt_file, decrypt_file as crypto_decrypt_file
+from markupsafe import escape as html_escape
 
 # python-magic: try import, fallback gracefully
 try:
@@ -77,13 +78,19 @@ class BROServer:
         )
         self.app.secret_key = config.SECRET_KEY
         self.app.config["MAX_CONTENT_LENGTH"] = config.MAX_FILE_SIZE
-        # CORS: restrict to local/private network origins
+        # Session security: expire after 24 hours, secure cookies when HTTPS
+        self.app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours
+        self.app.config["SESSION_COOKIE_HTTPONLY"] = True
+        self.app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+        if config.TLS_AVAILABLE:
+            self.app.config["SESSION_COOKIE_SECURE"] = True
+        # CORS: restrict to local/private network origins (HTTP + HTTPS)
         _cors_origins = [
-            r"http://127\.0\.0\.1(:\d+)?",
-            r"http://localhost(:\d+)?",
-            r"http://192\.168\.\d+\.\d+(:\d+)?",
-            r"http://10\.\d+\.\d+\.\d+(:\d+)?",
-            r"http://172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?",
+            r"https?://127\.0\.0\.1(:\d+)?",
+            r"https?://localhost(:\d+)?",
+            r"https?://192\.168\.\d+\.\d+(:\d+)?",
+            r"https?://10\.\d+\.\d+\.\d+(:\d+)?",
+            r"https?://172\.(1[6-9]|2\d|3[01])\.\d+\.\d+(:\d+)?",
         ]
         CORS(self.app, resources={r"/api/*": {"origins": _cors_origins}}, supports_credentials=False)
 
@@ -197,6 +204,16 @@ class BROServer:
         self._setup_events()
 
     @staticmethod
+    def _validate_username(username):
+        """Validate username: 2-30 chars, alphanumeric/Arabic + underscore/dash only."""
+        if not username or len(username) < 2 or len(username) > 30:
+            return False, "اسم المستخدم يجب أن يكون بين 2 و 30 حرفاً"
+        # Allow letters (any script including Arabic), digits, underscore, dash
+        if not re.match(r'^[\w\u0600-\u06FF\u0750-\u077F-]+$', username):
+            return False, "اسم المستخدم يحتوي على أحرف غير مسموحة"
+        return True, ""
+
+    @staticmethod
     def _validate_password(pw):
         """Validate password meets policy. Returns (ok, error_msg)."""
         if len(pw) < config.PASSWORD_MIN_LENGTH:
@@ -248,6 +265,30 @@ class BROServer:
         self._msg_rate[sid].append(now)
         return True
 
+    def _cleanup_stale_connections(self):
+        """Remove connections that have been unauthenticated for too long."""
+        now = time.time()
+        stale_timeout = 120  # 2 minutes without authentication
+        stale_sids = []
+        with self._clients_lock:
+            for sid, client in self.clients.items():
+                if client.get("username") is None:
+                    connected_at = client.get("connected_at", "")
+                    try:
+                        from datetime import datetime as dt
+                        ca = dt.fromisoformat(connected_at)
+                        age = (datetime.utcnow() - ca).total_seconds()
+                        if age > stale_timeout:
+                            stale_sids.append(sid)
+                    except Exception:
+                        pass
+        for sid in stale_sids:
+            try:
+                self.sio.disconnect(sid)
+                self.clients.pop(sid, None)
+            except Exception:
+                pass
+
     def _log(self, msg, level="info"):
         self.logs.append({"time": datetime.utcnow().isoformat(), "level": level, "message": msg})
         if len(self.logs) > 500:
@@ -282,18 +323,24 @@ class BROServer:
         return w
 
     def _setup_routes(self):
-        # Security headers (CSP)
+        # Security headers
         @self.app.after_request
         def _set_security_headers(response):
             response.headers["X-Content-Type-Options"] = "nosniff"
             response.headers["X-Frame-Options"] = "SAMEORIGIN"
             response.headers["X-XSS-Protection"] = "1; mode=block"
+            response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+            response.headers["Permissions-Policy"] = (
+                "camera=(self), microphone=(self), geolocation=(), payment=()"
+            )
+            if config.TLS_AVAILABLE:
+                response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
             response.headers["Content-Security-Policy"] = (
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline'; "
                 "style-src 'self' 'unsafe-inline'; "
                 "img-src 'self' data: blob:; "
-                "media-src 'self' blob:; "
+                "media-src 'self' blob: mediastream:; "
                 "connect-src 'self' ws: wss:; "
                 "font-src 'self';"
             )
@@ -348,6 +395,7 @@ class BROServer:
                     # Force password change if still using default
                     if self._admin_needs_pw_change:
                         return redirect(url_for("change_default_password"))
+                    session.permanent = True
                     session["admin"] = True
                     return redirect(url_for("admin_page"))
                 return render_template("login.html", error="خطأ بالدخول")
@@ -676,8 +724,13 @@ class BROServer:
             if _magic_available:
                 try:
                     mime = magic.from_file(save_path, mime=True)
-                    dangerous_mimes = {"application/x-executable", "application/x-dosexec",
-                                       "application/x-sharedlib", "application/x-mach-binary"}
+                    dangerous_mimes = {
+                        "application/x-executable", "application/x-dosexec",
+                        "application/x-sharedlib", "application/x-mach-binary",
+                        "application/x-msdos-program", "application/x-msdownload",
+                        "application/x-elf", "application/x-shellscript",
+                        "application/x-bat", "application/x-msi",
+                    }
                     if mime in dangerous_mimes:
                         os.remove(save_path)
                         return jsonify({"error": "نوع الملف غير مسموح (ملف تنفيذي)"}), 400
@@ -794,6 +847,10 @@ class BROServer:
             if not safe or safe != filename:
                 return jsonify({"error": "اسم ملف غير صالح"}), 400
             fpath = os.path.join(config.UPLOAD_FOLDER, safe)
+            # Path traversal protection: ensure resolved path is inside UPLOAD_FOLDER
+            real_path = os.path.realpath(fpath)
+            if not real_path.startswith(os.path.realpath(config.UPLOAD_FOLDER)):
+                return jsonify({"error": "مسار غير مسموح"}), 403
             if not os.path.isfile(fpath):
                 return jsonify({"error": "الملف غير موجود"}), 404
             return send_from_directory(config.UPLOAD_FOLDER, safe, as_attachment=True)
@@ -811,6 +868,10 @@ class BROServer:
             if not safe or safe != filename:
                 return jsonify({"error": "اسم ملف غير صالح"}), 400
             fpath = os.path.join(self.recordings_dir, safe)
+            # Path traversal protection
+            real_path = os.path.realpath(fpath)
+            if not real_path.startswith(os.path.realpath(self.recordings_dir)):
+                return jsonify({"error": "مسار غير مسموح"}), 403
             if not os.path.isfile(fpath):
                 return jsonify({"error": "التسجيل غير موجود"}), 404
             return send_from_directory(self.recordings_dir, safe, as_attachment=True)
@@ -1120,6 +1181,12 @@ class BROServer:
                 return jsonify({"error": "unauthorized"}), 403
             return jsonify(self.sfu.get_stats())
 
+    def _require_auth_ws(self):
+        """Check if the current WebSocket session is authenticated."""
+        sid = request.sid
+        client = self.clients.get(sid, {})
+        return client.get("username") is not None
+
     def _setup_events(self):
         @self.sio.on("connect")
         def on_connect():
@@ -1186,14 +1253,9 @@ class BROServer:
             if not username or not password:
                 emit("auth_result", {"ok": False, "error": "الاسم وكلمة المرور مطلوبين"})
                 return
-            if len(username) < 2:
-                emit("auth_result", {"ok": False, "error": "الاسم قصير جداً"})
-                return
-            if len(username) > 30:
-                emit("auth_result", {"ok": False, "error": "الاسم طويل جداً"})
-                return
-            if not re.match(r'^[\w\u0600-\u06FF\u0750-\u077F\s\-]+$', username):
-                emit("auth_result", {"ok": False, "error": "الاسم يحتوي على رموز غير مسموحة"})
+            uname_ok, uname_err = self._validate_username(username)
+            if not uname_ok:
+                emit("auth_result", {"ok": False, "error": uname_err})
                 return
             pw_ok, pw_err = self._validate_password(password)
             if not pw_ok:
@@ -1430,10 +1492,13 @@ class BROServer:
                 return
             if len(text) > self._MAX_MSG_LEN:
                 text = text[:self._MAX_MSG_LEN]
+            # Sanitize HTML to prevent XSS (skip for encrypted messages)
+            encrypted = data.get("encrypted", False)
+            if not encrypted:
+                text = str(html_escape(text))
             target_user = data.get("target_user")
             room_id = data.get("room_id")
             reply_to = data.get("reply_to")
-            encrypted = data.get("encrypted", False)
 
             if room_id:
                 members = self.db.get_room_members(room_id)
@@ -1704,9 +1769,11 @@ class BROServer:
                     "sender": request.sid, "room_id": data.get("room_id"),
                 }, room=target)
 
-        # --- WebRTC signaling ---
+        # --- WebRTC signaling (auth required) ---
         @self.sio.on("call_request")
         def on_call_req(data):
+            if not self._require_auth_ws():
+                return
             sid = request.sid
             target = data["target"]
             call_type = data.get("call_type", "video")
@@ -1723,6 +1790,8 @@ class BROServer:
 
         @self.sio.on("call_accept")
         def on_call_accept(data):
+            if not self._require_auth_ws():
+                return
             sid = request.sid
             target = data["target"]
             call_id = data.get("call_id")
@@ -1736,6 +1805,8 @@ class BROServer:
 
         @self.sio.on("call_reject")
         def on_call_reject(data):
+            if not self._require_auth_ws():
+                return
             sid = request.sid
             target = data["target"]
             call_id = data.get("call_id")
@@ -1749,6 +1820,8 @@ class BROServer:
 
         @self.sio.on("call_end")
         def on_call_end(data):
+            if not self._require_auth_ws():
+                return
             target = data.get("target")
             call_id = data.get("call_id")
             if call_id:
@@ -1762,6 +1835,8 @@ class BROServer:
 
         @self.sio.on("webrtc_offer")
         def on_offer(data):
+            if not self._require_auth_ws():
+                return
             call_id = data.get("call_id")
             if call_id:
                 self.signaling.call_connecting(call_id)
@@ -1774,6 +1849,8 @@ class BROServer:
 
         @self.sio.on("webrtc_answer")
         def on_answer(data):
+            if not self._require_auth_ws():
+                return
             self.signaling.send_reliable("webrtc_answer", {
                 "sdp": data["sdp"], "type": data["type"],
                 "sender": request.sid, "target": data["target"],
@@ -1782,6 +1859,8 @@ class BROServer:
 
         @self.sio.on("webrtc_ice")
         def on_ice(data):
+            if not self._require_auth_ws():
+                return
             call_id = data.get("call_id")
             if call_id:
                 self.signaling.record_ice_candidate(call_id, request.sid, data.get("candidate"))
@@ -1879,12 +1958,32 @@ class BROServer:
         self.ws_mesh.start(on_message=_on_ws_message)
 
         # Generate QR code for easy connection
-        client_url = f"http://{self.host_ip}:{port}/client"
+        scheme = "https" if config.TLS_AVAILABLE else "http"
+        client_url = f"{scheme}://{self.host_ip}:{port}/client"
         self._qr_b64 = generate_qr_code(client_url)
         self._log("QR code generated for client connection")
 
         # Start scheduled tasks (auto-backup, cleanup)
         self._scheduler = init_scheduler(self.db, config.UPLOAD_FOLDER, self.backup_dir)
+
+        # Periodic cleanup of stale unauthenticated connections
+        def _stale_cleanup_loop():
+            while True:
+                try:
+                    try:
+                        import eventlet
+                        eventlet.sleep(60)
+                    except ImportError:
+                        import gevent
+                        gevent.sleep(60)
+                except Exception:
+                    time.sleep(60)
+                try:
+                    self._cleanup_stale_connections()
+                except Exception:
+                    pass
+        _cleanup_t = threading.Thread(target=_stale_cleanup_loop, daemon=True)
+        _cleanup_t.start()
 
         # Desktop notification
         notify_server_started(self.host_ip, port)
@@ -1895,28 +1994,42 @@ class BROServer:
                 net_lines += f"    {iface['name']:12s} {iface['ip']:16s} ({iface['type']})\n"
             if not net_lines:
                 net_lines = f"    {'auto':12s} {self.host_ip:16s}\n"
+            tls_status = "Yes (auto-generated)" if config.TLS_AVAILABLE else "No"
+            sfu_mode = "Real SFU (aiortc)" if self.sfu.has_media_relay else "Signaling Relay"
             print(f"""
   Helen WiFi - هيلين WiFi (LAN Only / Multi-Network)
   Server ID : {self.server_id}
   Primary IP: {self.host_ip}:{port}
   Networks  :
 {net_lines}  Fiber     : {'Yes' if self.is_fiber else 'No'}
+  TLS/HTTPS : {tls_status}
   Database  : {config.DB_PATH}
-  Client    : http://{self.host_ip}:{port}/client
-  Admin     : http://{self.host_ip}:{port}/admin
-  QR Code   : http://{self.host_ip}:{port}/api/qr-code
+  Client    : {scheme}://{self.host_ip}:{port}/client
+  Admin     : {scheme}://{self.host_ip}:{port}/admin
+  QR Code   : {scheme}://{self.host_ip}:{port}/api/qr-code
   STUN/TURN : stun:{self.host_ip}:3478 | turn:UDP/TCP:3478
-  SFU       : Active (relay media server)
-  Diagnostics: http://{self.host_ip}:{port}/api/rtc/diagnostics
+  SFU       : {sfu_mode}
+  Diagnostics: {scheme}://{self.host_ip}:{port}/api/rtc/diagnostics
   WS Mesh   : ws://{self.host_ip}:{port + 2}
   mDNS      : Active (auto-discovery on all networks)
 """)
 
         if getattr(sys, 'frozen', False):
-            threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}/client")).start()
+            threading.Timer(1.5, lambda: webbrowser.open(f"{scheme}://127.0.0.1:{port}/client")).start()
+
+        # Use HTTPS if TLS certificates are available
+        ssl_kwargs = {}
+        if config.TLS_AVAILABLE:
+            import ssl
+            ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_ctx.load_cert_chain(config.TLS_CERT, config.TLS_KEY)
+            ssl_ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+            ssl_kwargs["ssl_context"] = ssl_ctx
+            self._log("HTTPS enabled with TLS certificates")
 
         try:
-            self.sio.run(self.app, host=host, port=port, debug=False, log_output=not silent)
+            self.sio.run(self.app, host=host, port=port, debug=False,
+                         log_output=not silent, **ssl_kwargs)
         finally:
             self.turn_server.stop()
             self.discovery.stop()

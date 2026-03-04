@@ -277,12 +277,12 @@ function createWindow() {
             responseHeaders: {
                 ...details.responseHeaders,
                 'Content-Security-Policy': [
-                    "default-src 'self' http://127.0.0.1:* http://localhost:*; " +
-                    "script-src 'self' 'unsafe-inline' http://127.0.0.1:* http://localhost:*; " +
+                    "default-src 'self' https://127.0.0.1:* https://localhost:* http://127.0.0.1:* http://localhost:*; " +
+                    "script-src 'self' 'unsafe-inline' https://127.0.0.1:* https://localhost:* http://127.0.0.1:* http://localhost:*; " +
                     "style-src 'self' 'unsafe-inline'; " +
-                    "img-src 'self' data: blob: http://127.0.0.1:* http://localhost:*; " +
+                    "img-src 'self' data: blob: https://127.0.0.1:* https://localhost:* http://127.0.0.1:* http://localhost:*; " +
                     "media-src 'self' blob: mediastream:; " +
-                    "connect-src 'self' ws://127.0.0.1:* ws://localhost:* http://127.0.0.1:* http://localhost:*; " +
+                    "connect-src 'self' wss://127.0.0.1:* wss://localhost:* ws://127.0.0.1:* ws://localhost:* https://127.0.0.1:* https://localhost:* http://127.0.0.1:* http://localhost:*; " +
                     "font-src 'self';"
                 ],
             },
@@ -315,6 +315,19 @@ function createWindow() {
 
     mainWindow.on('move', () => {
         settings.windowBounds = mainWindow.getBounds();
+    });
+
+    // Restrict navigation to local server only (prevent phishing/redirect attacks)
+    mainWindow.webContents.on('will-navigate', (event, url) => {
+        const allowed = url.startsWith(SERVER_URL) ||
+                        url.startsWith('http://127.0.0.1:') ||
+                        url.startsWith('https://127.0.0.1:') ||
+                        url.startsWith('http://localhost:') ||
+                        url.startsWith('https://localhost:');
+        if (!allowed) {
+            event.preventDefault();
+            shell.openExternal(url);
+        }
     });
 
     // Handle new window requests (open in default browser)

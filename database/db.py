@@ -150,6 +150,8 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
             CREATE INDEX IF NOT EXISTS idx_messages_target ON messages(target);
             CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by);
+            CREATE INDEX IF NOT EXISTS idx_room_members_username ON room_members(username);
         """)
         # Add columns if upgrading from older schema
         for col_sql in [

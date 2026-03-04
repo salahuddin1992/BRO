@@ -365,12 +365,19 @@ class SFUMediaBridge:
             logger.debug(f"Renegotiation with {sid[:8]} failed: {e}")
 
     async def _remove_participant(self, room_id, sid):
-        """Remove participant, close their PC, and notify others."""
+        """Remove participant, close their PC, and renegotiate with remaining."""
         with self._lock:
             room = self._rooms.get(room_id, {})
             state = room.pop(sid, None)
+            remaining = list(room.items()) if room else []
 
         if state:
+            # Stop all relay subscriptions for this participant
+            for sub in state.subscriptions:
+                try:
+                    sub.stop()
+                except Exception:
+                    pass
             try:
                 await state.pc.close()
             except Exception:
@@ -378,6 +385,13 @@ class SFUMediaBridge:
             logger.info(
                 f"SFU removed {state.username} ({sid[:8]}) from room {room_id}"
             )
+
+            # Renegotiate with remaining participants to remove departed tracks
+            for other_sid, other_state in remaining:
+                try:
+                    await self._renegotiate(room_id, other_sid, other_state)
+                except Exception as e:
+                    logger.debug(f"Post-leave renegotiation with {other_sid[:8]} failed: {e}")
 
         # Clean empty rooms
         with self._lock:
