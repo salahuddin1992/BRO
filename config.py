@@ -44,6 +44,46 @@ ADMIN_PASSWORD = os.environ.get("BRO_ADMIN_PASS", "admin123")
 PASSWORD_MIN_LENGTH = 6
 PASSWORD_REQUIRE_MIXED = True  # require letters + digits
 
+# ──────────────────────────────────────────────────────────
+# Connection Types Between Servers (Server-to-Server Mesh)
+# ──────────────────────────────────────────────────────────
+# Protocol        | Port  | Transport | Description
+# ────────────────┼───────┼───────────┼──────────────────────────────────────
+# UDP Broadcast   | 8401  | UDP       | Mesh auto-discovery & peer announcements
+#                 |       |           | - HMAC-SHA256 signed messages
+#                 |       |           | - Replay protection (30s window)
+#                 |       |           | - msgpack serialized payloads
+# ────────────────┼───────┼───────────┼──────────────────────────────────────
+# TCP Mesh Bridge | 8402  | TCP       | Persistent server-to-server connections
+#                 |       |           | - Length-prefixed JSON frames
+#                 |       |           | - Optional zlib compression
+#                 |       |           | - HMAC challenge-response auth
+#                 |       |           | - Heartbeat every 15s (ping/pong)
+#                 |       |           | - Auto-reconnect with exponential backoff
+# ────────────────┼───────┼───────────┼──────────────────────────────────────
+# HTTP/HTTPS REST | 8400  | TCP       | Inter-server API communication
+#                 |       |           | - /api/mesh/sync-users  (user sync)
+#                 |       |           | - /api/mesh/forward     (event forward)
+#                 |       |           | - /api/mesh/broadcast   (broadcast)
+#                 |       |           | - /api/mesh/info        (peer metadata)
+#                 |       |           | - Auto TLS (self-signed certs)
+# ────────────────┼───────┼───────────┼──────────────────────────────────────
+# mDNS/DNS-SD    | 5353  | UDP       | Zeroconf service discovery
+#                 |       |           | - Service: _helenwifi._tcp.local.
+#                 |       |           | - Auto peer detection on LAN
+# ────────────────┼───────┼───────────┼──────────────────────────────────────
+# STUN/TURN      | 3478  | UDP/TCP   | WebRTC NAT traversal (media relay)
+#                 | 5349  | TLS       | Secure TURN relay
+#                 | 443   | TLS       | Fallback TURN (firewall-friendly)
+# ────────────────┼───────┼───────────┼──────────────────────────────────────
+# Socket.IO      | 8400  | WebSocket | Real-time client-server signaling
+#                 |       |           | - Chat, calls, file transfer events
+#                 |       |           | - WebRTC offer/answer/ICE exchange
+# ──────────────────────────────────────────────────────────
+# NOTE: This project does NOT use SFTP, FTP, or SSH.
+#       All connections are over the protocols listed above.
+# ──────────────────────────────────────────────────────────
+
 # Mesh
 MESH_PORT = 8401
 MESH_MAX_SERVERS = 100

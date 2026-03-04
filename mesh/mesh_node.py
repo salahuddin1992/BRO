@@ -1,6 +1,11 @@
 """
 Mesh Networking - UDP auto-discovery + HTTP inter-server communication
 Enables cross-server calls, messages, and user sync.
+
+Connection Types:
+  - UDP Broadcast (port 8401): Peer discovery & announcements (HMAC-SHA256 signed, msgpack)
+  - HTTP/HTTPS  (port 8400): REST API for user sync, event forwarding, broadcasts
+  - TCP Mesh    (port 8402): Persistent connections handled by ws_mesh.py
 """
 import hashlib
 import hmac as hmac_mod
