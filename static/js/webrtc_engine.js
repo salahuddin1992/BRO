@@ -382,6 +382,24 @@ class WebRTCEngine {
             });
         }
 
+        // ICE gathering timeout - if ICE doesn't connect within 15s, trigger failure
+        const iceTimeout = setTimeout(() => {
+            if (pc.iceConnectionState === 'new' || pc.iceConnectionState === 'checking') {
+                console.warn(`ICE timeout for ${targetSid} (state: ${pc.iceConnectionState})`);
+                this._onFailed(pc, targetSid);
+            }
+        }, 15000);
+
+        // Clear timeout when connected
+        const origHandler = pc.oniceconnectionstatechange;
+        pc.oniceconnectionstatechange = () => {
+            const state = pc.iceConnectionState;
+            if (state === 'connected' || state === 'completed' || state === 'failed' || state === 'closed') {
+                clearTimeout(iceTimeout);
+            }
+            origHandler.call(this);
+        };
+
         // Start connection quality monitoring
         if (this.enableDiagnostics) {
             this._startStatsMonitoring(targetSid, pc);

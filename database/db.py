@@ -69,6 +69,23 @@ class Database:
                 except Exception:
                     pass
 
+    def close_all(self):
+        """Close all pooled connections. Call on shutdown."""
+        with self._pool_lock:
+            for conn in self._pool:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            self._pool.clear()
+        if hasattr(self._local, "conn") and self._local.conn:
+            try:
+                self._local.conn.close()
+            except Exception:
+                pass
+            self._local.conn = None
+        logger.info("All database connections closed")
+
     def _init_db(self):
         conn = self._get_conn()
         conn.executescript("""
@@ -193,6 +210,9 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_messages_target ON messages(target);
             CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(timestamp);
             CREATE INDEX IF NOT EXISTS idx_files_uploaded_by ON files(uploaded_by);
+            CREATE INDEX IF NOT EXISTS idx_files_room ON files(room_id);
+            CREATE INDEX IF NOT EXISTS idx_files_expires ON files(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_files_saved_as ON files(saved_as);
             CREATE INDEX IF NOT EXISTS idx_room_members_username ON room_members(username);
         """)
         # FTS5 virtual table for full-text message search

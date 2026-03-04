@@ -61,7 +61,14 @@ class MeshNode:
 
     def stop(self):
         self._running = False
-        self._send_broadcast({"type": "leave", "server_id": self.server_id, "ts": time.time()})
+        try:
+            self._send_broadcast({"type": "leave", "server_id": self.server_id, "ts": time.time()})
+        except Exception:
+            pass
+        with self._lock:
+            self.peers.clear()
+            self.remote_users.clear()
+        logger.info("Mesh node stopped")
 
     # --- UDP Discovery ---
 
@@ -79,24 +86,27 @@ class MeshNode:
             logger.error(f"Mesh bind failed: {e}")
             return
 
-        while self._running:
-            try:
-                signed_data, addr = sock.recvfrom(65535)
-                # Verify HMAC signature
-                data = self._verify_message(signed_data)
-                if data is None:
-                    continue  # reject unsigned/tampered messages
-                # Try msgpack first, fallback to JSON for compatibility
+        try:
+            while self._running:
                 try:
-                    msg = msgpack.unpackb(data, raw=False)
-                except Exception:
-                    msg = json.loads(data.decode())
-                self._handle(msg, addr)
-            except socket.timeout:
-                continue
-            except Exception:
-                continue
-        sock.close()
+                    signed_data, addr = sock.recvfrom(65535)
+                    # Verify HMAC signature
+                    data = self._verify_message(signed_data)
+                    if data is None:
+                        continue  # reject unsigned/tampered messages
+                    # Try msgpack first, fallback to JSON for compatibility
+                    try:
+                        msg = msgpack.unpackb(data, raw=False)
+                    except Exception:
+                        msg = json.loads(data.decode())
+                    self._handle(msg, addr)
+                except socket.timeout:
+                    continue
+                except Exception as e:
+                    logger.debug(f"Mesh listen error: {e}")
+                    continue
+        finally:
+            sock.close()
 
     def _handle(self, msg, addr):
         sid = msg.get("server_id")
@@ -106,6 +116,10 @@ class MeshNode:
         if msg.get("type") == "announce":
             with self._lock:
                 is_new = sid not in self.peers
+                # Limit peer count to prevent memory exhaustion
+                if is_new and len(self.peers) >= config.MESH_MAX_SERVERS:
+                    logger.warning(f"Mesh peer limit reached ({config.MESH_MAX_SERVERS}), ignoring {sid}")
+                    return
                 self.peers[sid] = {
                     "server_id": sid,
                     "host": msg.get("host", addr[0]),
