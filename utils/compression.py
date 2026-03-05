@@ -73,7 +73,7 @@ def compress_file(input_path, output_path=None, chunk_size=256 * 1024):
 def decompress_file(input_path, output_path=None, chunk_size=256 * 1024):
     """Decompress a zstandard file with chunked streaming. Returns output path."""
     if output_path is None:
-        output_path = input_path.removesuffix(".zst")
+        output_path = input_path[:-4] if input_path.endswith(".zst") else input_path
 
     temp_path = output_path + ".tmp"
     try:
