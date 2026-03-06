@@ -91,11 +91,20 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 .topbar { display:flex; align-items:center; justify-content:space-between; padding:10px 18px; border-bottom:1px solid var(--border); gap:10px; }
 .topbar .target { font-size:.9em; color:var(--dim); }
 .btns { display:flex; gap:6px; align-items:center; }
-.cbtn { width:38px; height:38px; border-radius:50%; border:none; cursor:pointer; font-size:1.1em;
-        display:flex; align-items:center; justify-content:center; }
-.cbtn.voice { background:var(--green); color:#fff; }
-.cbtn.video { background:var(--accent); color:#fff; }
-.cbtn.hangup { background:var(--red); color:#fff; display:none; }
+.btn-group-call { display:flex; gap:4px; align-items:center; background:rgba(0,100,255,0.08); border:1px solid rgba(0,100,255,0.15); border-radius:12px; padding:3px 5px; }
+.btn-group-tools { display:flex; gap:4px; align-items:center; background:rgba(255,255,255,0.03); border-radius:12px; padding:3px 5px; }
+.cbtn { width:38px; height:38px; border-radius:10px; border:none; cursor:pointer; font-size:1.1em;
+        display:flex; align-items:center; justify-content:center; transition:transform .15s,box-shadow .15s; position:relative; }
+.cbtn:hover { transform:scale(1.08); }
+.cbtn:active { transform:scale(0.95); }
+.cbtn[title]:hover::after { content:attr(title); position:absolute; top:100%; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.85); color:#fff; padding:3px 8px; border-radius:6px; font-size:.68em; white-space:nowrap; margin-top:4px; z-index:10; }
+.cbtn.voice { background:linear-gradient(135deg,#00e676,#00c853); color:#fff; box-shadow:0 2px 8px rgba(0,230,118,0.3); }
+.cbtn.video { background:linear-gradient(135deg,#00d4ff,#0066ff); color:#fff; box-shadow:0 2px 8px rgba(0,212,255,0.3); }
+.cbtn.screen { background:linear-gradient(135deg,#26c6da,#00acc1); color:#fff; box-shadow:0 2px 8px rgba(38,198,218,0.3); }
+.cbtn.group-call-btn { background:linear-gradient(135deg,#ff9100,#ff6d00); color:#fff; box-shadow:0 2px 8px rgba(255,145,0,0.3); }
+.cbtn.hangup { background:var(--red); color:#fff; display:none; animation:hangupPulse 1.5s infinite; }
+@keyframes hangupPulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,82,82,0.4);} 50%{box-shadow:0 0 0 6px rgba(255,82,82,0);} }
 .cbtn.search-btn { background:rgba(255,255,255,0.08); color:var(--dim); }
 .cbtn.profile-btn { background:rgba(255,255,255,0.08); color:var(--dim); }
 
@@ -108,11 +117,18 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 .vid-area { display:none; background:#000; position:relative; max-height:45vh; }
 .vid-area.on { display:flex; }
 #remoteVid { width:100%; height:100%; object-fit:cover; }
-#localVid { position:absolute; bottom:10px; left:10px; width:150px; border-radius:8px; border:2px solid var(--accent); z-index:5; }
-.vid-ctrl { position:absolute; bottom:10px; left:50%; transform:translateX(-50%); display:flex; gap:10px; z-index:5; }
-.vbtn { width:42px; height:42px; border-radius:50%; border:none; cursor:pointer; font-size:1.1em;
-        background:rgba(255,255,255,0.15); color:#fff; }
+#localVid { position:absolute; bottom:10px; left:10px; width:150px; border-radius:8px; border:2px solid var(--accent);
+    z-index:5; cursor:move; transition:border-color .2s,box-shadow .2s; }
+#localVid:hover { border-color:#fff; box-shadow:0 4px 16px rgba(0,0,0,0.5); }
+.vid-ctrl { position:absolute; bottom:10px; left:50%; transform:translateX(-50%); display:flex; gap:8px; z-index:5;
+    background:rgba(0,0,0,0.4); backdrop-filter:blur(8px); border-radius:16px; padding:6px 12px; }
+.vbtn { width:44px; height:44px; border-radius:50%; border:none; cursor:pointer; font-size:1.15em;
+        background:rgba(255,255,255,0.15); backdrop-filter:blur(4px); color:#fff; transition:transform .15s,background .2s; }
+.vbtn:hover { transform:scale(1.08); background:rgba(255,255,255,0.25); }
+.vbtn:active { transform:scale(0.95); }
 .vbtn.off { background:var(--red); }
+.vbtn[title]:hover::after { content:attr(title); position:absolute; bottom:100%; left:50%; transform:translateX(-50%);
+    background:rgba(0,0,0,0.85); color:#fff; padding:3px 8px; border-radius:6px; font-size:.65em; white-space:nowrap; margin-bottom:4px; }
 
 /* Search bar */
 .search-bar { display:none; padding:8px 18px; border-bottom:1px solid var(--border); }
@@ -225,15 +241,62 @@ body { font-family:'Segoe UI',Tahoma,sans-serif; background:var(--bg); color:var
 .irow .v { direction:ltr; font-family:monospace; }
 
 /* Incoming call */
-.call-popup { position:fixed; inset:0; background:rgba(0,0,0,0.85); display:none; align-items:center; justify-content:center; z-index:200; }
-.call-popup.on { display:flex; }
-.call-card { text-align:center; padding:40px; }
-.call-card h2 { color:var(--accent); margin-bottom:8px; }
-.call-card p { color:var(--dim); margin-bottom:24px; }
-.call-card .row { display:flex; gap:20px; justify-content:center; }
-.call-card button { width:56px; height:56px; border-radius:50%; border:none; cursor:pointer; font-size:1.4em; }
-.acc { background:var(--green); color:#fff; }
-.rej { background:var(--red); color:#fff; }
+/* Incoming Call - Redesigned */
+.call-popup { position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(12px); display:none; align-items:center; justify-content:center; z-index:200; }
+.call-popup.on { display:flex; animation:callSlideUp .4s ease-out; }
+@keyframes callSlideUp { from{opacity:0;transform:translateY(30px);} to{opacity:1;transform:translateY(0);} }
+.call-card { text-align:center; padding:40px 50px; }
+.call-avatar { width:80px; height:80px; border-radius:50%; background:linear-gradient(135deg,#00d4ff,#0066ff); display:flex; align-items:center;
+    justify-content:center; font-size:2em; font-weight:bold; color:#fff; margin:0 auto 16px; animation:avatarPulse 2s ease-in-out infinite; }
+@keyframes avatarPulse { 0%,100%{box-shadow:0 0 0 0 rgba(0,212,255,0.4);} 50%{box-shadow:0 0 0 20px rgba(0,212,255,0);} }
+.call-card h2 { color:#fff; margin-bottom:6px; font-size:1.3em; }
+.call-type-badge { display:inline-block; padding:3px 12px; border-radius:12px; font-size:.78em; margin-bottom:24px; }
+.call-type-badge.video { background:rgba(0,212,255,0.15); color:var(--accent); }
+.call-type-badge.audio { background:rgba(0,230,118,0.15); color:var(--green); }
+.call-card .row { display:flex; gap:24px; justify-content:center; }
+.call-card button { width:62px; height:62px; border-radius:50%; border:none; cursor:pointer; font-size:1.5em; transition:transform .15s; }
+.call-card button:hover { transform:scale(1.1); }
+.acc { background:var(--green); color:#fff; box-shadow:0 4px 16px rgba(0,230,118,0.4); }
+.rej { background:var(--red); color:#fff; box-shadow:0 4px 16px rgba(255,82,82,0.4); }
+
+/* Outgoing Call Overlay */
+.calling-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); backdrop-filter:blur(12px); display:none; align-items:center;
+    justify-content:center; z-index:200; flex-direction:column; }
+.calling-overlay.on { display:flex; animation:callSlideUp .4s ease-out; }
+.calling-avatar { width:90px; height:90px; border-radius:50%; background:linear-gradient(135deg,#00d4ff,#0066ff); display:flex; align-items:center;
+    justify-content:center; font-size:2.2em; font-weight:bold; color:#fff; margin-bottom:16px; animation:avatarPulse 2s ease-in-out infinite; }
+.calling-overlay .calling-name { color:#fff; font-size:1.3em; margin-bottom:6px; }
+.calling-overlay .calling-status { color:var(--dim); font-size:.85em; margin-bottom:30px; animation:statusDots 1.5s infinite; }
+@keyframes statusDots { 0%{content:'';} 33%{content:'.';} 66%{content:'..';} 100%{content:'...';} }
+.calling-cancel { width:60px; height:60px; border-radius:50%; border:none; background:var(--red); color:#fff; font-size:1.4em;
+    cursor:pointer; box-shadow:0 4px 16px rgba(255,82,82,0.4); }
+
+/* Call Status Bar */
+.call-status-bar { display:none; padding:6px 18px; background:rgba(0,0,0,0.3); border-bottom:1px solid var(--border);
+    align-items:center; gap:8px; font-size:.82em; }
+.call-status-bar.on { display:flex; }
+.call-status-dot { width:8px; height:8px; border-radius:50%; }
+.call-status-dot.connected { background:var(--green); animation:pulse 2s infinite; }
+.call-status-dot.connecting { background:var(--accent); animation:pulse .8s infinite; }
+.call-status-dot.failed { background:var(--red); }
+.call-quality-bars { display:flex; gap:2px; align-items:flex-end; height:14px; }
+.call-quality-bars .bar { width:3px; background:var(--green); border-radius:1px; transition:height .3s; }
+.call-quality-bars .bar:nth-child(1) { height:4px; }
+.call-quality-bars .bar:nth-child(2) { height:7px; }
+.call-quality-bars .bar:nth-child(3) { height:10px; }
+.call-quality-bars .bar:nth-child(4) { height:14px; }
+.call-quality-bars.poor .bar { background:var(--red); }
+.call-quality-bars.fair .bar:nth-child(3),.call-quality-bars.fair .bar:nth-child(4) { background:var(--dim); }
+.call-quality-bars.poor .bar:nth-child(2),.call-quality-bars.poor .bar:nth-child(3),.call-quality-bars.poor .bar:nth-child(4) { background:var(--dim); }
+
+/* Quality Indicator Overlay */
+.quality-indicator { position:absolute; top:8px; right:8px; background:rgba(0,0,0,0.6); padding:3px 8px; border-radius:8px;
+    font-size:.72em; color:#fff; z-index:6; display:none; }
+.quality-indicator.on { display:block; }
+
+/* Video Grid for Group Calls */
+.video-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:4px; background:#000; max-height:45vh; overflow-y:auto; }
+.video-grid video { width:100%; height:auto; object-fit:cover; border-radius:4px; }
 
 /* Room create modal */
 .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.7); display:none; align-items:center; justify-content:center; z-index:150; }
@@ -511,16 +574,25 @@ body.font-large { font-size:17px; }
     </div>
 </div>
 
-<!-- Incoming Call -->
+<!-- Incoming Call - Redesigned -->
 <div class="call-popup" id="callPopup">
     <div class="call-card">
+        <div class="call-avatar" id="callAvatar">?</div>
         <h2 id="callerName" data-i18n="incoming_call">مكالمة واردة</h2>
-        <p id="callTypeText" data-i18n="video_call">مكالمة فيديو</p>
+        <span class="call-type-badge video" id="callTypeBadge">&#127909; مكالمة فيديو</span>
         <div class="row">
             <button class="acc" onclick="acceptCall()">&#128222;</button>
             <button class="rej" onclick="rejectCall()">&#10005;</button>
         </div>
     </div>
+</div>
+
+<!-- Outgoing Call Overlay -->
+<div class="calling-overlay" id="callingOverlay">
+    <div class="calling-avatar" id="callingAvatar">?</div>
+    <div class="calling-name" id="callingName">جاري الاتصال...</div>
+    <div class="calling-status" id="callingStatus">انتظار الرد...</div>
+    <button class="calling-cancel" onclick="cancelOutgoingCall()">&#10005;</button>
 </div>
 
 <!-- App -->
@@ -553,14 +625,18 @@ body.font-large { font-size:17px; }
             <span class="target" id="chatTarget">عامة</span>
             <span class="call-timer" id="callTimer">00:00</span>
             <div class="btns">
-                <button class="cbtn search-btn" onclick="toggleSearch()" title="بحث">&#128269;</button>
-                <button class="cbtn profile-btn" onclick="openProfileModal()" title="الملف الشخصي">&#9881;</button>
-                <button class="cbtn search-btn" onclick="openSettings()" title="الإعدادات" style="font-size:.9em;">&#9881;</button>
-                <button class="cbtn voice" onclick="startCall('audio')" title="صوت">&#128222;</button>
-                <button class="cbtn video" onclick="startCall('video')" title="فيديو">&#127909;</button>
-                <button class="cbtn screen" id="screenBtn" onclick="toggleScreenShare()" title="مشاركة الشاشة">&#128187;</button>
-                <button class="cbtn" id="groupCallBtn" onclick="startGroupCall()" title="مكالمة جماعية" style="font-size:.8em;">&#128101;</button>
-                <button class="cbtn hangup" id="hangupBtn" onclick="endCall()">&#10005;</button>
+                <div class="btn-group-call">
+                    <button class="cbtn voice" onclick="startCall('audio')" title="مكالمة صوتية">&#128222;</button>
+                    <button class="cbtn video" onclick="startCall('video')" title="مكالمة فيديو">&#127909;</button>
+                    <button class="cbtn screen" id="screenBtn" onclick="toggleScreenShare()" title="مشاركة الشاشة">&#128187;</button>
+                    <button class="cbtn group-call-btn" id="groupCallBtn" onclick="showGroupCallChoice()" title="مكالمة جماعية" style="font-size:.8em;">&#128101;</button>
+                    <button class="cbtn hangup" id="hangupBtn" onclick="endCall()">&#10005;</button>
+                </div>
+                <div class="btn-group-tools">
+                    <button class="cbtn search-btn" onclick="toggleSearch()" title="بحث">&#128269;</button>
+                    <button class="cbtn profile-btn" onclick="openProfileModal()" title="الملف الشخصي">&#128100;</button>
+                    <button class="cbtn search-btn" onclick="openSettings()" title="الإعدادات" style="font-size:.9em;">&#9881;</button>
+                </div>
                 <span class="rec-dot" id="recDot"></span>
             </div>
         </div>
@@ -576,21 +652,37 @@ body.font-large { font-size:17px; }
             <button class="screen-share-stop" onclick="stopScreenShare()" data-i18n="stop_sharing">إيقاف المشاركة</button>
             <video id="screenVid" autoplay playsinline></video>
         </div>
+        <!-- Call Status Bar -->
+        <div class="call-status-bar" id="callStatusBar">
+            <div class="call-status-dot connected" id="callStatusDot"></div>
+            <span id="callStatusText">متصل</span>
+            <span style="margin-right:auto"></span>
+            <div class="call-quality-bars" id="callQualityBars">
+                <div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div>
+            </div>
+        </div>
+
         <div class="vid-area" id="vidArea">
             <video id="remoteVid" autoplay playsinline></video>
             <video id="localVid" autoplay muted playsinline></video>
+            <div class="quality-indicator" id="qualityIndicator">-- ms</div>
             <div class="vid-ctrl">
-                <button class="vbtn" id="micBtn" onclick="toggleMic()">&#127908;</button>
-                <button class="vbtn" id="camBtn" onclick="toggleCam()">&#127909;</button>
+                <button class="vbtn" id="micBtn" onclick="toggleMic()" title="كتم/تشغيل المايك">&#127908;</button>
+                <button class="vbtn" id="camBtn" onclick="toggleCam()" title="كتم/تشغيل الكاميرا">&#127909;</button>
+                <button class="vbtn" id="screenShareBtn" onclick="toggleScreenShare()" title="مشاركة الشاشة">&#128187;</button>
                 <button class="vbtn rec" id="recBtn" onclick="toggleRecording()" title="تسجيل">&#9679;</button>
                 <button class="vbtn" onclick="toggleFullscreen()" title="ملء الشاشة">&#x26F6;</button>
-                <button class="vbtn off" onclick="endCall()">&#10005;</button>
+                <button class="vbtn off" onclick="endCall()" title="إنهاء المكالمة">&#10005;</button>
             </div>
         </div>
+
+        <!-- Video Grid for Group Calls -->
+        <div class="video-grid" id="videoGrid" style="display:none"></div>
 
         <!-- Group Call Banner -->
         <div class="group-call-banner" id="groupCallBanner">
             <span id="groupCallText">مكالمة جماعية نشطة</span>
+            <span class="call-type-badge video" id="groupCallTypeBadge" style="font-size:.72em;margin:0 6px;">&#127909; فيديو</span>
             <button class="join-btn" id="groupCallJoinBtn" onclick="joinGroupCall()">انضمام</button>
             <button class="leave-btn" id="groupCallLeaveBtn" onclick="leaveGroupCall()" style="display:none">مغادرة</button>
         </div>
@@ -1224,17 +1316,42 @@ function initSocket(user, pass, token){
     // WebRTC
     socket.on('incoming_call', d=>{
         inCall = d.sender;
-        document.getElementById('callerName').textContent = d.sender_name;
-        document.getElementById('callTypeText').textContent = d.call_type==='video'?t('video_call'):t('audio_call');
+        let name = d.sender_name || '?';
+        document.getElementById('callerName').textContent = name;
+        // Set avatar letter
+        document.getElementById('callAvatar').textContent = name.charAt(0).toUpperCase();
+        // Set call type badge
+        let badge = document.getElementById('callTypeBadge');
+        if(d.call_type==='video'){
+            badge.innerHTML = '&#127909; مكالمة فيديو';
+            badge.className = 'call-type-badge video';
+        } else {
+            badge.innerHTML = '&#128266; مكالمة صوتية';
+            badge.className = 'call-type-badge audio';
+        }
         document.getElementById('callPopup').classList.add('on');
         window._callType = d.call_type;
         startRing();
-        showNotif(t('incoming_call'), d.sender_name);
+        showNotif(t('incoming_call'), name);
     });
 
-    socket.on('call_accepted', async d=>{ await createOffer(d.sender); });
-    socket.on('call_rejected', ()=>{ sysMsg(t('call_rejected')); cleanup(); });
-    socket.on('call_ended', ()=>{ sysMsg(t('call_ended')); cleanup(); });
+    socket.on('call_accepted', async d=>{
+        // Hide calling overlay
+        document.getElementById('callingOverlay').classList.remove('on');
+        clearTimeout(window._callingTimeout);
+        await createOffer(d.sender);
+    });
+    socket.on('call_rejected', ()=>{
+        document.getElementById('callingOverlay').classList.remove('on');
+        clearTimeout(window._callingTimeout);
+        sysMsg(t('call_rejected')); cleanup();
+    });
+    socket.on('call_ended', ()=>{
+        document.getElementById('callingOverlay').classList.remove('on');
+        clearTimeout(window._callingTimeout);
+        hideCallStatusBar();
+        sysMsg(t('call_ended')); cleanup();
+    });
     socket.on('webrtc_offer', async d=> await handleOffer(d));
     socket.on('webrtc_answer', async d=> await handleAnswer(d));
     socket.on('webrtc_ice', async d=> await handleIce(d));
@@ -1696,7 +1813,59 @@ async function startCall(type){
     document.getElementById('hangupBtn').style.display='flex';
     inCall = selUser;
     socket.emit('call_request',{target:selUser, sender_name:me, call_type:type});
-    sysMsg(t('calling'));
+    // Show calling overlay
+    showCallingOverlay(selUser, type);
+}
+
+function showCallingOverlay(targetName, callType){
+    let name = targetName || '?';
+    document.getElementById('callingAvatar').textContent = name.charAt(0).toUpperCase();
+    document.getElementById('callingName').textContent = name;
+    document.getElementById('callingStatus').textContent = 'انتظار الرد...';
+    document.getElementById('callingOverlay').classList.add('on');
+    // Timeout after 45 seconds
+    window._callingTimeout = setTimeout(()=>{
+        document.getElementById('callingOverlay').classList.remove('on');
+        sysMsg('لم يتم الرد');
+        cleanup();
+    }, 45000);
+}
+
+function cancelOutgoingCall(){
+    document.getElementById('callingOverlay').classList.remove('on');
+    clearTimeout(window._callingTimeout);
+    if(inCall){ socket.emit('call_end',{target:inCall}); }
+    cleanup();
+}
+
+function showCallStatusBar(name, state){
+    let bar = document.getElementById('callStatusBar');
+    let dot = document.getElementById('callStatusDot');
+    let text = document.getElementById('callStatusText');
+    bar.classList.add('on');
+    text.textContent = name + ' - ' + state;
+    dot.className = 'call-status-dot ' + (state==='متصل'?'connected':'connecting');
+}
+function hideCallStatusBar(){
+    document.getElementById('callStatusBar').classList.remove('on');
+}
+function updateCallQuality(rtt){
+    let qi = document.getElementById('qualityIndicator');
+    let bars = document.getElementById('callQualityBars');
+    qi.classList.add('on');
+    qi.textContent = rtt + ' ms';
+    if(rtt<50){ qi.style.color='var(--green)'; bars.className='call-quality-bars'; }
+    else if(rtt<150){ qi.style.color='var(--accent)'; bars.className='call-quality-bars'; }
+    else if(rtt<300){ qi.style.color='var(--orange)'; bars.className='call-quality-bars fair'; }
+    else { qi.style.color='var(--red)'; bars.className='call-quality-bars poor'; }
+}
+
+// Group call choice (audio vs video)
+function showGroupCallChoice(){
+    if(!selRoom){ sysMsg('اختر غرفة أولاً'); return; }
+    let choice = confirm('مكالمة فيديو جماعية?\n\nاضغط OK للفيديو\nاضغط Cancel للصوت فقط');
+    window._groupCallType = choice ? 'video' : 'audio';
+    startGroupCall();
 }
 
 async function acceptCall(){
@@ -1766,8 +1935,33 @@ function setupPC(target){
         if(e.track.kind === 'video') document.getElementById('vidArea').classList.add('on');
     };
     pc.onconnectionstatechange = ()=>{
-        if(pc.connectionState==='connected'){ sysMsg(t('connected')); startCallTimer(); }
-        if(pc.connectionState==='failed'||pc.connectionState==='disconnected'){ sysMsg(t('disconnected')); cleanup(); }
+        if(pc.connectionState==='connected'){
+            sysMsg(t('connected'));
+            startCallTimer();
+            showCallStatusBar(target, 'متصل');
+            // Start quality monitoring
+            window._qualityInterval = setInterval(async ()=>{
+                if(!pc) { clearInterval(window._qualityInterval); return; }
+                try {
+                    let stats = await pc.getStats();
+                    stats.forEach(report=>{
+                        if(report.type==='candidate-pair' && report.state==='succeeded'){
+                            let rtt = Math.round(report.currentRoundTripTime * 1000);
+                            updateCallQuality(rtt);
+                        }
+                    });
+                } catch(e){}
+            }, 3000);
+        }
+        if(pc.connectionState==='connecting'){
+            showCallStatusBar(target, 'جاري الاتصال');
+        }
+        if(pc.connectionState==='failed'){
+            showCallStatusBar(target, 'فشل الاتصال');
+            document.getElementById('callStatusDot').className = 'call-status-dot failed';
+            sysMsg(t('disconnected')); cleanup();
+        }
+        if(pc.connectionState==='disconnected'){ sysMsg(t('disconnected')); cleanup(); }
     };
 }
 
@@ -1781,6 +1975,7 @@ function cleanup(){
     stopCallTimer();
     stopRecordingAndUpload();
     stopScreenShare();
+    if(window._qualityInterval){ clearInterval(window._qualityInterval); window._qualityInterval=null; }
     if(pc){ pc.close(); pc=null; }
     if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
     inCall=null; iceQ=[]; micOn=true; camOn=true;
@@ -1789,6 +1984,10 @@ function cleanup(){
     document.getElementById('vidArea').classList.remove('on');
     document.getElementById('hangupBtn').style.display='none';
     document.getElementById('callPopup').classList.remove('on');
+    document.getElementById('callingOverlay').classList.remove('on');
+    document.getElementById('qualityIndicator').classList.remove('on');
+    hideCallStatusBar();
+    clearTimeout(window._callingTimeout);
     document.getElementById('micBtn').classList.remove('off');
     document.getElementById('camBtn').classList.remove('off');
 }
@@ -2183,7 +2382,8 @@ let inGroupCall = false;
 
 function startGroupCall(){
     if(!selRoom){ sysMsg(t('select_room')||'اختر غرفة أولاً'); return; }
-    let callType = 'audio'; // default to audio for group
+    let callType = window._groupCallType || 'audio';
+    window._groupCallType = callType;
     socket.emit('group_call_start', {room_id:selRoom, call_type:callType});
     joinGroupCall();
 }
@@ -2192,13 +2392,31 @@ async function joinGroupCall(){
     if(!selRoom) return;
     groupCallRoom = selRoom;
     inGroupCall = true;
+    let callType = window._groupCallType || 'audio';
+    let useVideo = callType === 'video';
     try {
         localStream = await navigator.mediaDevices.getUserMedia({
             audio:{echoCancellation:true, noiseSuppression:true, autoGainControl:true},
-            video:false
+            video: useVideo ? {width:{ideal:640},height:{ideal:480}} : false
         });
     } catch(e){ sysMsg((t('device_error')||'خطأ بالجهاز: ')+e.message); return; }
     document.getElementById('localVid').srcObject = localStream;
+    if(useVideo){
+        document.getElementById('vidArea').classList.add('on');
+        // Show video grid
+        let grid = document.getElementById('videoGrid');
+        grid.style.display = 'grid';
+        grid.innerHTML = '';
+        // Add local video to grid
+        let localEl = document.createElement('video');
+        localEl.srcObject = localStream;
+        localEl.autoplay = true;
+        localEl.muted = true;
+        localEl.playsInline = true;
+        localEl.id = 'gridLocal';
+        localEl.style.cssText = 'border:2px solid var(--accent);border-radius:4px;';
+        grid.appendChild(localEl);
+    }
     document.getElementById('groupCallJoinBtn').style.display='none';
     document.getElementById('groupCallLeaveBtn').style.display='';
     socket.emit('group_call_join', {room_id:groupCallRoom});
@@ -2217,11 +2435,16 @@ function leaveGroupCall(){
     if(localStream){ localStream.getTracks().forEach(t=>t.stop()); localStream=null; }
     document.getElementById('localVid').srcObject=null;
     document.getElementById('vidArea').classList.remove('on');
+    // Clean up video grid
+    let grid = document.getElementById('videoGrid');
+    grid.style.display = 'none';
+    grid.innerHTML = '';
     document.getElementById('groupCallBanner').classList.remove('on');
     document.getElementById('groupCallJoinBtn').style.display='';
     document.getElementById('groupCallLeaveBtn').style.display='none';
     inGroupCall = false;
     groupCallRoom = null;
+    window._groupCallType = null;
     sysMsg(t('left_group_call')||'غادرت المكالمة الجماعية');
 }
 
@@ -2233,12 +2456,29 @@ async function createGroupPeerConnection(targetSid, isInitiator){
     };
     gpc.ontrack = e=>{
         groupStreams[targetSid] = e.streams[0];
-        // Play remote audio
-        let audio = document.createElement('audio');
-        audio.autoplay = true;
-        audio.id = 'group-audio-'+targetSid;
-        audio.srcObject = e.streams[0];
-        document.body.appendChild(audio);
+        let isVideoCall = window._groupCallType === 'video';
+        if(isVideoCall){
+            // Add video to grid
+            let grid = document.getElementById('videoGrid');
+            let existing = document.getElementById('grid-'+targetSid);
+            if(!existing){
+                let vid = document.createElement('video');
+                vid.id = 'grid-'+targetSid;
+                vid.autoplay = true;
+                vid.playsInline = true;
+                vid.srcObject = e.streams[0];
+                grid.appendChild(vid);
+            } else {
+                existing.srcObject = e.streams[0];
+            }
+        } else {
+            // Audio only: play remote audio
+            let audio = document.createElement('audio');
+            audio.autoplay = true;
+            audio.id = 'group-audio-'+targetSid;
+            audio.srcObject = e.streams[0];
+            document.body.appendChild(audio);
+        }
     };
     if(localStream) localStream.getTracks().forEach(t=> gpc.addTrack(t,localStream));
     if(isInitiator){
@@ -2256,7 +2496,17 @@ initSocket = function(user, pass, token){
 
     socket.on('group_call_invite', d=>{
         groupCallRoom = d.room_id;
-        document.getElementById('groupCallText').textContent = d.initiator + ' بدأ مكالمة جماعية في ' + d.room_name;
+        window._groupCallType = d.call_type || 'audio';
+        let typeIcon = d.call_type === 'video' ? '🎥' : '🔊';
+        document.getElementById('groupCallText').textContent = typeIcon + ' ' + d.initiator + ' بدأ مكالمة جماعية في ' + d.room_name;
+        let badge = document.getElementById('groupCallTypeBadge');
+        if(d.call_type==='video'){
+            badge.innerHTML = '&#127909; فيديو';
+            badge.className = 'call-type-badge video';
+        } else {
+            badge.innerHTML = '&#128266; صوت';
+            badge.className = 'call-type-badge audio';
+        }
         document.getElementById('groupCallBanner').classList.add('on');
     });
 
@@ -2278,6 +2528,9 @@ initSocket = function(user, pass, token){
         delete groupStreams[d.sid];
         let audioEl = document.getElementById('group-audio-'+d.sid);
         if(audioEl) audioEl.remove();
+        // Remove from video grid
+        let gridVid = document.getElementById('grid-'+d.sid);
+        if(gridVid) gridVid.remove();
         sysMsg((d.username||'مستخدم') + ' غادر المكالمة');
     });
 

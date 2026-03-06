@@ -155,6 +155,15 @@ class SFUManager:
         """Whether the real media relay is active."""
         return self._media_bridge is not None and self._media_bridge.available
 
+    @property
+    def is_available(self):
+        """Whether this SFU can accept new cross-server rooms."""
+        return len(self._rooms) < 50  # Max concurrent SFU rooms
+
+    def get_capacity(self):
+        """Return current capacity info for cross-server negotiation scoring."""
+        return {"active_rooms": len(self._rooms), "has_media_relay": self.has_media_relay, "available": self.is_available}
+
     def _on_media_renegotiate(self, room_id, sid, sdp_dict):
         """Called by media bridge when server needs to renegotiate with client."""
         self.sio.emit("sfu_server_offer", {

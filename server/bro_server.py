@@ -35,6 +35,10 @@ from network.turn_server import LocalTurnServer
 from network.discovery import ServiceDiscovery
 from network.ws_mesh import WebSocketMeshBridge
 from network.sfu import SFUManager
+from network.call_negotiator import (
+    CrossServerCallNegotiator, CallNegotiationProtocol, ServerScore,
+)
+from network.cross_server_router import CrossServerRouter
 from network.ssh_server import SSHServer
 from network.ftp_server import FTPServer
 from network.sftp_server import SFTPServer
@@ -49,6 +53,7 @@ from utils.compression import should_compress, compress_file
 from utils.notifications import (notify_server_started, notify_new_message,
                                  notify_incoming_call, notify_file_shared)
 from utils.crypto import encrypt_file as crypto_encrypt_file, decrypt_file as crypto_decrypt_file
+from utils.signal_protocol import SignalProtocolManager
 from markupsafe import escape as html_escape
 
 # python-magic: try import, fallback gracefully
@@ -60,13 +65,7 @@ except ImportError:
 
 logger = logging.getLogger("HelenWiFi")
 
-ALLOWED_EXTENSIONS = {
-    'txt','pdf','png','jpg','jpeg','gif','bmp','webp','svg',
-    'mp3','mp4','wav','ogg','webm','avi','mkv','mov',
-    'doc','docx','xls','xlsx','ppt','pptx','odt','ods',
-    'zip','rar','7z','tar','gz',
-    'csv','json','xml','html','css','js','py',
-}
+ALLOWED_EXTENSIONS = None  # All file types allowed
 
 
 class BROServer:
@@ -171,6 +170,20 @@ class BROServer:
         self.ws_mesh = WebSocketMeshBridge(
             self.server_id, self.host_ip, config.SERVER_PORT, config.SECRET_KEY
         )
+
+        # Cross-Server Call Negotiator
+        self.call_negotiator = CrossServerCallNegotiator(
+            self.server_id, self.mesh, self.sfu
+        )
+
+        # Cross-Server Signal Router
+        self.xrouter = CrossServerRouter(
+            self.sio, self.mesh, self.ws_mesh, self.server_id,
+            clients_ref=self.clients,
+        )
+
+        # Signal Protocol Manager (E2E encryption)
+        self.signal = SignalProtocolManager(self.server_id, config.SECRET_KEY)
 
         # SSH Server (remote terminal for admin/moderator)
         self.ssh_server = SSHServer(
@@ -589,7 +602,12 @@ class BROServer:
                 "process": get_process_stats(),
                 "discovery": {
                     "mdns_peers": self.discovery.get_discovered_peers(),
+                    "discovered_servers": self.db.get_discovered_servers(),
+                    "pending_join_requests": len([r for r in self.db.get_join_requests() if r.get("status") == "pending"]),
                 },
+                "xrouter": self.xrouter.get_stats(),
+                "call_negotiator": self.call_negotiator.get_stats(),
+                "signal_protocol": self.signal.get_stats(),
                 "ws_mesh": self.ws_mesh.get_stats(),
                 "ssh": self.ssh_server.get_stats(),
                 "ftp": self.ftp_server.get_stats(),
@@ -860,28 +878,9 @@ class BROServer:
                 return jsonify({"error": "No file"}), 400
             original = f.filename
             safe = secure_filename(original) or "file"
-            ext = safe.rsplit('.', 1)[-1].lower() if '.' in safe else ''
-            if ext and ext not in ALLOWED_EXTENSIONS:
-                return jsonify({"error": f"نوع الملف غير مسموح: .{ext}"}), 400
             name = f"{int(time.time())}_{safe}"
             save_path = os.path.join(config.UPLOAD_FOLDER, name)
             f.save(save_path)
-            # Validate MIME type with python-magic
-            if _magic_available:
-                try:
-                    mime = magic.from_file(save_path, mime=True)
-                    dangerous_mimes = {
-                        "application/x-executable", "application/x-dosexec",
-                        "application/x-sharedlib", "application/x-mach-binary",
-                        "application/x-msdos-program", "application/x-msdownload",
-                        "application/x-elf", "application/x-shellscript",
-                        "application/x-bat", "application/x-msi",
-                    }
-                    if mime in dangerous_mimes:
-                        os.remove(save_path)
-                        return jsonify({"error": "نوع الملف غير مسموح (ملف تنفيذي)"}), 400
-                except Exception as e:
-                    logger.warning(f"MIME validation failed for {safe}: {e}")
             size = os.path.getsize(save_path)
             if size > config.MAX_FILE_SIZE:
                 os.remove(save_path)
@@ -951,13 +950,13 @@ class BROServer:
             notify_file_shared(uploaded_by, f.filename)
             if room_id:
                 members = self.db.get_room_members(room_id)
-                for sid, cl in self.clients.items():
-                    if cl.get("username") in members:
-                        self.sio.emit("file_shared", info, room=sid)
+                self.xrouter.broadcast_to_room_members("file_shared", info, room_id, members)
             elif target_user:
-                for sid, cl in self.clients.items():
-                    if cl.get("username") in (target_user, uploaded_by):
-                        self.sio.emit("file_shared", info, room=sid)
+                self.xrouter.route("file_shared", info, target_username=target_user)
+                # Also notify the uploader
+                for sid_i, cl_i in self.clients.items():
+                    if cl_i.get("username") == uploaded_by:
+                        self.sio.emit("file_shared", info, room=sid_i)
             else:
                 self.sio.emit("file_shared", info)
             return jsonify({"status": "ok", "file": info})
@@ -1141,11 +1140,6 @@ class BROServer:
             if received >= total_chunks:
                 # Assemble file
                 safe = secure_filename(filename) or "file"
-                ext = safe.rsplit('.', 1)[-1].lower() if '.' in safe else ''
-                if ext and ext not in ALLOWED_EXTENSIONS:
-                    import shutil
-                    shutil.rmtree(chunk_dir, ignore_errors=True)
-                    return jsonify({"error": f"نوع الملف غير مسموح: .{ext}"}), 400
                 name = f"{int(time.time())}_{safe}"
                 save_path = os.path.join(config.UPLOAD_FOLDER, name)
                 with open(save_path, 'wb') as out_f:
@@ -1205,13 +1199,12 @@ class BROServer:
                 notify_file_shared(uploader, filename)
                 if room_id:
                     members = self.db.get_room_members(room_id)
-                    for sid, cl in self.clients.items():
-                        if cl.get("username") in members:
-                            self.sio.emit("file_shared", info, room=sid)
+                    self.xrouter.broadcast_to_room_members("file_shared", info, room_id, members)
                 elif target_user:
-                    for sid, cl in self.clients.items():
-                        if cl.get("username") in (target_user, uploader):
-                            self.sio.emit("file_shared", info, room=sid)
+                    self.xrouter.route("file_shared", info, target_username=target_user)
+                    for sid_i, cl_i in self.clients.items():
+                        if cl_i.get("username") == uploader:
+                            self.sio.emit("file_shared", info, room=sid_i)
                 else:
                     self.sio.emit("file_shared", info)
                 return jsonify({"status": "ok", "complete": True, "file": info})
@@ -1298,6 +1291,57 @@ class BROServer:
             data = request.get_json()
             event = data.get("event")
             payload = data.get("data", {})
+
+            # Handle cross-server router delivery
+            if event == "xrouter_deliver":
+                self.xrouter.handle_incoming_delivery(payload)
+                return jsonify({"status": "ok"})
+
+            # Handle cross-server router relay
+            if event in ("multi_deliver", "xrouter_relay"):
+                self.xrouter.handle_relay(payload)
+                return jsonify({"status": "ok"})
+
+            # Handle call negotiation messages
+            if event == CallNegotiationProtocol.REQUEST_SCORES:
+                call_id = payload.get("call_id")
+                if call_id:
+                    score = self.call_negotiator.compute_local_score(call_id)
+                    if score:
+                        resp = CallNegotiationProtocol.make_score_response(call_id, score.to_dict())
+                        initiator = payload.get("initiator_server")
+                        if initiator:
+                            self.mesh.forward_to_peer(initiator, resp["type"], resp)
+                return jsonify({"status": "ok"})
+
+            if event == CallNegotiationProtocol.SCORE_RESPONSE:
+                call_id = payload.get("call_id")
+                score_dict = payload.get("score")
+                if call_id and score_dict:
+                    negotiation = self.call_negotiator.receive_score(call_id, score_dict)
+                    if negotiation:
+                        self.call_negotiator.elect_and_notify(call_id)
+                return jsonify({"status": "ok"})
+
+            if event == CallNegotiationProtocol.HOST_ELECTED:
+                call_id = payload.get("call_id")
+                host_server = payload.get("host_server")
+                if call_id:
+                    # Notify local participants
+                    neg = self.call_negotiator.get_negotiation(call_id)
+                    if neg:
+                        for p in neg.participants:
+                            if p.get("server_id") == self.server_id:
+                                local_sid = p.get("sid")
+                                if local_sid and local_sid in self.clients:
+                                    self.sio.emit("call_host_elected", {
+                                        "call_id": call_id,
+                                        "host_server": host_server,
+                                        "relay_paths": neg.relay_paths,
+                                    }, room=local_sid)
+                return jsonify({"status": "ok"})
+
+            # Default: direct forwarding
             target = payload.get("target")
             if target and target in self.clients:
                 self.sio.emit(event, payload, room=target)
@@ -1310,6 +1354,25 @@ class BROServer:
             data = request.get_json()
             event = data.get("event")
             payload = data.get("data", {})
+
+            # Handle host election broadcasts
+            if event == CallNegotiationProtocol.HOST_ELECTED:
+                call_id = payload.get("call_id")
+                host_server = payload.get("host_server")
+                if call_id:
+                    neg = self.call_negotiator.get_negotiation(call_id)
+                    if neg:
+                        for p in neg.participants:
+                            if p.get("server_id") == self.server_id:
+                                local_sid = p.get("sid")
+                                if local_sid and local_sid in self.clients:
+                                    self.sio.emit("call_host_elected", {
+                                        "call_id": call_id,
+                                        "host_server": host_server,
+                                        "relay_paths": neg.relay_paths,
+                                    }, room=local_sid)
+                return jsonify({"status": "ok"})
+
             self.sio.emit(event, payload)
             return jsonify({"status": "ok"})
 
@@ -1354,6 +1417,236 @@ class BROServer:
             if not session.get("admin"):
                 return jsonify({"error": "unauthorized"}), 403
             return jsonify(self.sfu.get_stats())
+
+        # ── Signal Protocol API ──────────────────────────────────────────
+
+        @self.app.route("/api/signal/bundle/<username>")
+        def signal_get_bundle(username):
+            """Get user's public key bundle for E2E encryption."""
+            bundle = self.signal.get_public_bundle(username)
+            if bundle:
+                return jsonify({"bundle": bundle})
+            return jsonify({"error": "Bundle not found"}), 404
+
+        @self.app.route("/api/signal/session/initiate", methods=["POST"])
+        def signal_initiate():
+            """Initiate an encrypted session."""
+            data = request.get_json()
+            sender = data.get("sender")
+            receiver = data.get("receiver")
+            if not sender or not receiver:
+                return jsonify({"error": "sender and receiver required"}), 400
+            receiver_bundle = self.signal.get_public_bundle(receiver)
+            result = self.signal.initiate_session(sender, receiver, receiver_bundle)
+            if result:
+                return jsonify({"session": result})
+            return jsonify({"error": "Session initiation failed"}), 500
+
+        @self.app.route("/api/signal/session/respond", methods=["POST"])
+        def signal_respond():
+            """Respond to an encrypted session."""
+            data = request.get_json()
+            receiver = data.get("receiver")
+            initiation = data.get("initiation")
+            if not receiver or not initiation:
+                return jsonify({"error": "receiver and initiation data required"}), 400
+            result = self.signal.respond_to_session(receiver, initiation)
+            if result:
+                return jsonify({"session": result})
+            return jsonify({"error": "Session response failed"}), 500
+
+        @self.app.route("/api/signal/group/create", methods=["POST"])
+        def signal_group_create():
+            """Create encrypted group."""
+            data = request.get_json()
+            group_id = data.get("group_id")
+            creator = data.get("creator")
+            if not group_id or not creator:
+                return jsonify({"error": "group_id and creator required"}), 400
+            dist = self.signal.create_group(group_id, creator)
+            return jsonify({"distribution": dist})
+
+        @self.app.route("/api/signal/group/join", methods=["POST"])
+        def signal_group_join():
+            """Join encrypted group."""
+            data = request.get_json()
+            group_id = data.get("group_id")
+            username = data.get("username")
+            distributions = data.get("distributions", [])
+            if not group_id or not username:
+                return jsonify({"error": "group_id and username required"}), 400
+            dist = self.signal.join_group(group_id, username, distributions)
+            return jsonify({"distribution": dist})
+
+        @self.app.route("/api/signal/stats")
+        def signal_stats():
+            """Get encryption statistics."""
+            return jsonify(self.signal.get_stats())
+
+        # ── Server Discovery & Join Requests ─────────────────────────────
+
+        @self.app.route("/api/discovery/scan", methods=["POST"])
+        def discovery_scan():
+            """Scan for servers on the network."""
+            token = request.headers.get("Authorization", "").replace("Bearer ", "")
+            user = self._get_token_user(token) if token else None
+            if not user:
+                return jsonify({"error": "unauthorized"}), 401
+
+            # Collect from all sources
+            mdns_peers = self.discovery.get_discovered_peers()
+            mesh_peers = []
+            for pid, pinfo in self.mesh.peers.items():
+                mesh_peers.append({
+                    "server_id": pid,
+                    "host": pinfo.get("host"),
+                    "port": pinfo.get("port"),
+                    "source": "mesh",
+                })
+
+            servers = []
+            seen = set()
+            for p in mdns_peers:
+                sid = p.get("server_id", "")
+                if sid and sid != self.server_id and sid not in seen:
+                    seen.add(sid)
+                    servers.append({**p, "source": "mDNS"})
+            for p in mesh_peers:
+                sid = p.get("server_id", "")
+                if sid and sid != self.server_id and sid not in seen:
+                    seen.add(sid)
+                    servers.append(p)
+
+            # Save discovered servers to DB
+            for s in servers:
+                self.db.save_discovered_server(
+                    s.get("server_id"), s.get("name", ""),
+                    s.get("host", ""), s.get("port", 8400),
+                    s.get("source", "scan"),
+                )
+
+            return jsonify({"servers": servers})
+
+        @self.app.route("/api/discovery/servers")
+        def discovery_list():
+            """List all discovered servers."""
+            if not session.get("admin"):
+                token = request.headers.get("Authorization", "").replace("Bearer ", "")
+                user = self._get_token_user(token) if token else None
+                if not user:
+                    return jsonify({"error": "unauthorized"}), 401
+            servers = self.db.get_discovered_servers()
+            return jsonify({"servers": servers})
+
+        @self.app.route("/api/discovery/connect", methods=["POST"])
+        @self._require_admin
+        def discovery_connect():
+            """Connect to a discovered server."""
+            data = request.get_json()
+            host = data.get("host")
+            port = int(data.get("port", config.SERVER_PORT))
+            if not host:
+                return jsonify({"error": "host required"}), 400
+            self.mesh.connect_to(host, port)
+            self.ws_mesh.connect_to_peer(host, port)
+            return jsonify({"status": "ok"})
+
+        @self.app.route("/api/discovery/join-request", methods=["POST"])
+        def discovery_join_request():
+            """Send a join request to a remote server."""
+            token = request.headers.get("Authorization", "").replace("Bearer ", "")
+            user = self._get_token_user(token) if token else None
+            if not user:
+                return jsonify({"error": "unauthorized"}), 401
+            data = request.get_json()
+            target_host = data.get("host")
+            target_port = int(data.get("port", config.SERVER_PORT))
+            message = data.get("message", "")
+            if not target_host:
+                return jsonify({"error": "host required"}), 400
+            # Send the request to the remote server
+            try:
+                import requests as req_lib
+                scheme = "https" if config.TLS_AVAILABLE else "http"
+                url = f"{scheme}://{target_host}:{target_port}/api/discovery/receive-request"
+                ts = str(int(time.time()))
+                body = {
+                    "server_id": self.server_id,
+                    "server_name": f"BRO-{self.server_id}",
+                    "host": self.host_ip,
+                    "port": config.SERVER_PORT,
+                    "username": user,
+                    "message": message,
+                }
+                payload = ts.encode() + json.dumps(body, sort_keys=True).encode()
+                sig = hmac.new(config.SECRET_KEY.encode(), payload, hashlib.sha256).hexdigest()
+                resp = req_lib.post(url, json=body, headers={
+                    "X-Mesh-Signature": sig,
+                    "X-Mesh-Timestamp": ts,
+                }, timeout=10, verify=False)
+                return jsonify({"status": "sent", "response": resp.status_code})
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+
+        @self.app.route("/api/discovery/receive-request", methods=["POST"])
+        def discovery_receive_request():
+            """Receive a join request from a remote server."""
+            # Accept requests with mesh secret OR without auth (for initial contact)
+            data = request.get_json()
+            server_id = data.get("server_id")
+            server_name = data.get("server_name", "")
+            host = data.get("host")
+            port = data.get("port", 8400)
+            username = data.get("username", "")
+            message = data.get("message", "")
+            if not server_id or not host:
+                return jsonify({"error": "server_id and host required"}), 400
+            # Save join request
+            req_id = self.db.save_join_request(server_id, server_name, host, port, username, message)
+            # Notify admins via Socket.IO
+            for sid_i, cl_i in self.clients.items():
+                uname = cl_i.get("username")
+                if uname and self.db.get_user_role(uname) == ROLE_ADMIN:
+                    self.sio.emit("join_request_received", {
+                        "id": req_id,
+                        "server_id": server_id,
+                        "server_name": server_name,
+                        "host": host,
+                        "port": port,
+                        "username": username,
+                        "message": message,
+                    }, room=sid_i)
+            return jsonify({"status": "received", "id": req_id})
+
+        @self.app.route("/api/discovery/requests")
+        @self._require_admin
+        def discovery_list_requests():
+            """List join requests."""
+            requests_list = self.db.get_join_requests()
+            return jsonify({"requests": requests_list})
+
+        @self.app.route("/api/discovery/requests/<int:req_id>/approve", methods=["POST"])
+        @self._require_admin
+        def discovery_approve(req_id):
+            """Approve a join request."""
+            req_info = self.db.resolve_join_request(req_id, "approved", session.get("admin_user", "admin"))
+            if req_info:
+                # Auto-connect
+                self.mesh.connect_to(req_info["host"], req_info["port"])
+                self.ws_mesh.connect_to_peer(req_info["host"], req_info["port"])
+                self._log(f"Join request approved: {req_info['server_name']} ({req_info['host']})")
+                return jsonify({"status": "approved"})
+            return jsonify({"error": "Request not found"}), 404
+
+        @self.app.route("/api/discovery/requests/<int:req_id>/reject", methods=["POST"])
+        @self._require_admin
+        def discovery_reject(req_id):
+            """Reject a join request."""
+            req_info = self.db.resolve_join_request(req_id, "rejected", session.get("admin_user", "admin"))
+            if req_info:
+                self._log(f"Join request rejected: {req_info.get('server_name', '?')}")
+                return jsonify({"status": "rejected"})
+            return jsonify({"error": "Request not found"}), 404
 
     def _require_auth_ws(self):
         """Check if the current WebSocket session is authenticated."""
@@ -1779,33 +2072,33 @@ class BROServer:
             active = self.db.get_all_voice_rooms()
             emit("voice_rooms_list", {"voice_rooms": active})
 
-        # --- Voice Room WebRTC Signaling ---
+        # --- Voice Room WebRTC Signaling (cross-server) ---
         @self.sio.on("voice_room_offer")
         def on_voice_room_offer(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("voice_room_offer", {
-                    "sdp": data["sdp"], "type": data["type"],
-                    "sender": request.sid, "room_id": data.get("room_id"),
-                }, room=target)
+            payload = {
+                "sdp": data["sdp"], "type": data["type"],
+                "sender": request.sid, "room_id": data.get("room_id"),
+            }
+            self.xrouter.route("voice_room_offer", payload, target_sid=target)
 
         @self.sio.on("voice_room_answer")
         def on_voice_room_answer(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("voice_room_answer", {
-                    "sdp": data["sdp"], "type": data["type"],
-                    "sender": request.sid, "room_id": data.get("room_id"),
-                }, room=target)
+            payload = {
+                "sdp": data["sdp"], "type": data["type"],
+                "sender": request.sid, "room_id": data.get("room_id"),
+            }
+            self.xrouter.route("voice_room_answer", payload, target_sid=target)
 
         @self.sio.on("voice_room_ice")
         def on_voice_room_ice(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("voice_room_ice", {
-                    "candidate": data.get("candidate"),
-                    "sender": request.sid, "room_id": data.get("room_id"),
-                }, room=target)
+            payload = {
+                "candidate": data.get("candidate"),
+                "sender": request.sid, "room_id": data.get("room_id"),
+            }
+            self.xrouter.route("voice_room_ice", payload, target_sid=target)
 
         # --- Typing ---
         @self.sio.on("typing")
@@ -1899,14 +2192,14 @@ class BROServer:
                         if uname == target_user:
                             delivered = True
                 emit("chat_message", msg)
-                # Queue for offline delivery if target not online
-                if not delivered and not self._is_user_online(target_user):
-                    self.db.save_offline_message(target_user, "chat_message", msg)
+                # Try cross-server delivery if not delivered locally
+                if not delivered:
+                    remote_delivered = self.xrouter.route("chat_message", msg, target_username=target_user)
+                    if not remote_delivered and not self._is_user_online(target_user):
+                        self.db.save_offline_message(target_user, "chat_message", msg)
             elif room_id:
                 members = self.db.get_room_members(room_id)
-                for csid, cl in self.clients.items():
-                    if cl.get("username") in members:
-                        self.sio.emit("chat_message", msg, room=csid)
+                self.xrouter.broadcast_to_room_members("chat_message", msg, room_id, members, exclude_sid=sid)
             else:
                 self.sio.emit("chat_message", msg)
                 self.mesh.broadcast_to_peers("chat_message", msg)
@@ -2001,52 +2294,47 @@ class BROServer:
                 key = self.db.get_public_key(target)
                 emit("public_key_response", {"username": target, "public_key": key})
 
-        # --- Screen Share Signaling ---
+        # --- Screen Share Signaling (cross-server) ---
         @self.sio.on("screen_share_start")
         def on_screen_start(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("screen_share_started", {
-                    "sender": request.sid,
-                    "sender_name": data.get("sender_name"),
-                }, room=target)
+            self.xrouter.route("screen_share_started", {
+                "sender": request.sid,
+                "sender_name": data.get("sender_name"),
+            }, target_sid=target)
 
         @self.sio.on("screen_share_stop")
         def on_screen_stop(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("screen_share_stopped", {
-                    "sender": request.sid,
-                }, room=target)
+            self.xrouter.route("screen_share_stopped", {
+                "sender": request.sid,
+            }, target_sid=target)
 
         @self.sio.on("screen_offer")
         def on_screen_offer(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("screen_offer", {
-                    "sdp": data["sdp"], "type": data["type"],
-                    "sender": request.sid, "target": target,
-                }, room=target)
+            self.xrouter.route("screen_offer", {
+                "sdp": data["sdp"], "type": data["type"],
+                "sender": request.sid, "target": target,
+            }, target_sid=target)
 
         @self.sio.on("screen_answer")
         def on_screen_answer(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("screen_answer", {
-                    "sdp": data["sdp"], "type": data["type"],
-                    "sender": request.sid, "target": target,
-                }, room=target)
+            self.xrouter.route("screen_answer", {
+                "sdp": data["sdp"], "type": data["type"],
+                "sender": request.sid, "target": target,
+            }, target_sid=target)
 
         @self.sio.on("screen_ice")
         def on_screen_ice(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("screen_ice", {
-                    "candidate": data.get("candidate"),
-                    "sender": request.sid, "target": target,
-                }, room=target)
+            self.xrouter.route("screen_ice", {
+                "candidate": data.get("candidate"),
+                "sender": request.sid, "target": target,
+            }, target_sid=target)
 
-        # --- Group Call Signaling ---
+        # --- Group Call Signaling (cross-server) ---
         @self.sio.on("group_call_start")
         def on_group_call_start(data):
             sid = request.sid
@@ -2062,15 +2350,15 @@ class BROServer:
             room = self.db.get_room(room_id)
             # Register in signaling
             self.signaling.join_room(room_id, username, sid)
-            # Notify all room members
-            for csid, cl in self.clients.items():
-                if cl.get("username") in members and csid != sid:
-                    self.sio.emit("group_call_invite", {
-                        "room_id": room_id,
-                        "room_name": room["name"] if room else str(room_id),
-                        "initiator": username,
-                        "call_type": call_type,
-                    }, room=csid)
+            # Notify all room members (cross-server)
+            invite_data = {
+                "room_id": room_id,
+                "room_name": room["name"] if room else str(room_id),
+                "initiator": username,
+                "call_type": call_type,
+            }
+            other_members = [m for m in members if m != username]
+            self.xrouter.broadcast_to_room_members("group_call_invite", invite_data, room_id, other_members, exclude_sid=sid)
 
         @self.sio.on("group_call_join")
         def on_group_call_join(data):
@@ -2088,14 +2376,14 @@ class BROServer:
                 "room_id": room_id,
                 "participants": [p for p in participants if p["sid"] != sid],
             })
-            # Notify others that a new user joined
+            # Notify others that a new user joined (cross-server)
             for p in participants:
                 if p["sid"] != sid:
-                    self.sio.emit("group_call_peer_joined", {
+                    self.xrouter.route("group_call_peer_joined", {
                         "room_id": room_id,
                         "sid": sid,
                         "username": username,
-                    }, room=p["sid"])
+                    }, target_sid=p["sid"])
 
         @self.sio.on("group_call_leave")
         def on_group_call_leave(data):
@@ -2109,38 +2397,113 @@ class BROServer:
             self.signaling.leave_room(room_id, sid)
             for p in participants:
                 if p["sid"] != sid:
-                    self.sio.emit("group_call_peer_left", {
+                    self.xrouter.route("group_call_peer_left", {
                         "room_id": room_id,
                         "sid": sid,
                         "username": username,
-                    }, room=p["sid"])
+                    }, target_sid=p["sid"])
 
         @self.sio.on("group_call_offer")
         def on_group_offer(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("group_call_offer", {
-                    "sdp": data["sdp"], "type": data["type"],
-                    "sender": request.sid, "room_id": data.get("room_id"),
-                }, room=target)
+            self.xrouter.route("group_call_offer", {
+                "sdp": data["sdp"], "type": data["type"],
+                "sender": request.sid, "room_id": data.get("room_id"),
+            }, target_sid=target)
 
         @self.sio.on("group_call_answer")
         def on_group_answer(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("group_call_answer", {
-                    "sdp": data["sdp"], "type": data["type"],
-                    "sender": request.sid, "room_id": data.get("room_id"),
-                }, room=target)
+            self.xrouter.route("group_call_answer", {
+                "sdp": data["sdp"], "type": data["type"],
+                "sender": request.sid, "room_id": data.get("room_id"),
+            }, target_sid=target)
 
         @self.sio.on("group_call_ice")
         def on_group_ice(data):
             target = data.get("target")
-            if target and target in self.clients:
-                self.sio.emit("group_call_ice", {
-                    "candidate": data.get("candidate"),
-                    "sender": request.sid, "room_id": data.get("room_id"),
-                }, room=target)
+            self.xrouter.route("group_call_ice", {
+                "candidate": data.get("candidate"),
+                "sender": request.sid, "room_id": data.get("room_id"),
+            }, target_sid=target)
+
+        # --- Cross-Server Call Start ---
+        @self.sio.on("cross_server_call_start")
+        def on_cross_server_call(data):
+            """Initiate a call that spans multiple servers."""
+            if not self._require_auth_ws():
+                return
+            sid = request.sid
+            client = self.clients.get(sid, {})
+            username = client.get("username")
+            if not username:
+                return
+
+            participants_data = data.get("participants", [])
+            call_type = data.get("call_type", "audio")
+
+            # Discover which server each participant is on
+            participants = []
+            for p in participants_data:
+                p_username = p.get("username")
+                p_sid = None
+                p_server = self.server_id
+
+                # Check local
+                for csid, cl in self.clients.items():
+                    if cl.get("username") == p_username:
+                        p_sid = csid
+                        break
+
+                # Check remote
+                if not p_sid:
+                    for srv_id, users in self.mesh.remote_users.items():
+                        for u in users:
+                            if u.get("username") == p_username:
+                                p_sid = u.get("sid")
+                                p_server = srv_id
+                                break
+                        if p_sid:
+                            break
+
+                if p_sid:
+                    participants.append({
+                        "username": p_username,
+                        "server_id": p_server,
+                        "sid": p_sid,
+                    })
+
+            if len(participants) < 2:
+                emit("cross_server_call_error", {"error": "Not enough reachable participants"})
+                return
+
+            # Start negotiation
+            negotiation = self.call_negotiator.initiate_negotiation(participants, call_type)
+
+            # Compute local score
+            local_score = self.call_negotiator.compute_local_score(negotiation.call_id)
+            if local_score:
+                negotiation.add_score(local_score)
+
+            # Request scores from remote servers
+            msg = CallNegotiationProtocol.make_score_request(
+                negotiation.call_id, participants, call_type, self.server_id
+            )
+            for srv_id in negotiation.expected_servers:
+                if srv_id != self.server_id:
+                    try:
+                        self.mesh.forward_to_peer(srv_id, msg["type"], msg)
+                    except Exception as e:
+                        logger.error("Failed to request score from %s: %s", srv_id, e)
+
+            # If all participants are local, elect immediately
+            if len(negotiation.scores) >= len(negotiation.expected_servers):
+                self.call_negotiator.elect_and_notify(negotiation.call_id)
+
+            emit("cross_server_call_started", {
+                "call_id": negotiation.call_id,
+                "participants": participants,
+            })
 
         # --- WebRTC signaling (auth required) ---
         @self.sio.on("call_request")
@@ -2253,8 +2616,16 @@ class BROServer:
             logger.warning(f"Offline message delivery error: {e}")
 
     def _is_user_online(self, username):
-        """Check if a user is currently connected."""
-        return any(c.get("username") == username for c in self.clients.values())
+        """Check if a user is currently connected (local or remote)."""
+        # Check local
+        if any(c.get("username") == username for c in self.clients.values()):
+            return True
+        # Check remote via mesh
+        for users in self.mesh.remote_users.values():
+            for u in users:
+                if u.get("username") == username:
+                    return True
+        return False
 
     def _route_event(self, event, data, target_sid):
         if target_sid in self.clients:
@@ -2320,6 +2691,27 @@ class BROServer:
 
         self.discovery.start(on_peer_found=_on_mdns_peer_found, on_peer_lost=_on_mdns_peer_lost)
 
+        # Start cross-server call negotiator
+        def _on_host_elected(negotiation):
+            """Callback when a call host is elected."""
+            msg = CallNegotiationProtocol.make_host_elected(
+                negotiation.call_id, negotiation.host_server,
+                negotiation.relay_paths, negotiation.get_ranking(),
+            )
+            self.mesh.broadcast_to_peers(msg["type"], msg)
+            # Notify local participants
+            for p in negotiation.participants:
+                if p.get("server_id") == self.server_id:
+                    local_sid = p.get("sid")
+                    if local_sid and local_sid in self.clients:
+                        self.sio.emit("call_host_elected", {
+                            "call_id": negotiation.call_id,
+                            "host_server": negotiation.host_server,
+                            "relay_paths": negotiation.relay_paths,
+                        }, room=local_sid)
+
+        self.call_negotiator.start(on_host_elected=_on_host_elected)
+
         # Start WebSocket mesh bridge (persistent connections)
         def _on_ws_message(data):
             event = data.get("type")
@@ -2331,6 +2723,8 @@ class BROServer:
                     self._broadcast_users(sync=False)
             elif event == "chat_forward":
                 self.sio.emit("chat_message", data.get("message", {}))
+            elif event == "xrouter_relay":
+                self.xrouter.handle_relay(data)
 
         self.ws_mesh.start(on_message=_on_ws_message)
 
@@ -2433,6 +2827,7 @@ class BROServer:
             self.sio.run(self.app, host=host, port=port, debug=False,
                          log_output=not silent, **ssl_kwargs)
         finally:
+            self.call_negotiator.stop()
             self.turn_server.stop()
             self.discovery.stop()
             self.ws_mesh.stop()

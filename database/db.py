@@ -203,8 +203,37 @@ class Database:
                 FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
             );
 
+            CREATE TABLE IF NOT EXISTS discovered_servers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_id TEXT UNIQUE NOT NULL,
+                name TEXT DEFAULT '',
+                host TEXT NOT NULL,
+                port INTEGER DEFAULT 8400,
+                discovery_method TEXT DEFAULT 'scan',
+                first_seen TEXT DEFAULT (datetime('now')),
+                last_seen TEXT DEFAULT (datetime('now')),
+                status TEXT DEFAULT 'discovered',
+                auto_connect INTEGER DEFAULT 0
+            );
+
+            CREATE TABLE IF NOT EXISTS join_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                from_server_id TEXT NOT NULL,
+                server_name TEXT DEFAULT '',
+                host TEXT NOT NULL,
+                port INTEGER DEFAULT 8400,
+                from_username TEXT DEFAULT '',
+                message TEXT DEFAULT '',
+                status TEXT DEFAULT 'pending',
+                created_at TEXT DEFAULT (datetime('now')),
+                resolved_at TEXT,
+                resolved_by TEXT
+            );
+
             CREATE INDEX IF NOT EXISTS idx_reactions_message ON reactions(message_id);
             CREATE INDEX IF NOT EXISTS idx_voice_rooms_room ON voice_rooms(room_id);
+            CREATE INDEX IF NOT EXISTS idx_discovered_servers_sid ON discovered_servers(server_id);
+            CREATE INDEX IF NOT EXISTS idx_join_requests_status ON join_requests(status);
             CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room_id);
             CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);
             CREATE INDEX IF NOT EXISTS idx_messages_target ON messages(target);
@@ -1079,3 +1108,71 @@ class Database:
         conn = self._get_conn()
         rows = conn.execute("SELECT key, value FROM settings").fetchall()
         return {r["key"]: r["value"] for r in rows}
+
+    # ===================== Server Discovery =====================
+
+    def save_discovered_server(self, server_id, name, host, port, discovery_method="scan"):
+        """Save or update a discovered server."""
+        conn = self._get_conn()
+        try:
+            conn.execute("""
+                INSERT INTO discovered_servers (server_id, name, host, port, discovery_method)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(server_id) DO UPDATE SET
+                    host=excluded.host, port=excluded.port,
+                    last_seen=datetime('now'),
+                    name=CASE WHEN excluded.name != '' THEN excluded.name ELSE discovered_servers.name END
+            """, (server_id, name or "", host, port, discovery_method))
+            conn.commit()
+        except Exception as e:
+            logger.error("save_discovered_server error: %s", e)
+
+    def get_discovered_servers(self):
+        """Get all discovered servers."""
+        conn = self._get_conn()
+        rows = conn.execute(
+            "SELECT * FROM discovered_servers ORDER BY last_seen DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ===================== Join Requests =====================
+
+    def save_join_request(self, from_server_id, server_name, host, port, from_username="", message=""):
+        """Save a join request from a remote server."""
+        conn = self._get_conn()
+        try:
+            cur = conn.execute("""
+                INSERT INTO join_requests (from_server_id, server_name, host, port, from_username, message)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (from_server_id, server_name or "", host, port, from_username or "", message or ""))
+            conn.commit()
+            return cur.lastrowid
+        except Exception as e:
+            logger.error("save_join_request error: %s", e)
+            return None
+
+    def get_join_requests(self, status=None):
+        """Get join requests, optionally filtered by status."""
+        conn = self._get_conn()
+        if status:
+            rows = conn.execute(
+                "SELECT * FROM join_requests WHERE status=? ORDER BY created_at DESC", (status,)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM join_requests ORDER BY created_at DESC"
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def resolve_join_request(self, req_id, status, resolved_by="admin"):
+        """Approve or reject a join request. Returns request info or None."""
+        conn = self._get_conn()
+        row = conn.execute("SELECT * FROM join_requests WHERE id=?", (req_id,)).fetchone()
+        if not row:
+            return None
+        conn.execute("""
+            UPDATE join_requests SET status=?, resolved_at=datetime('now'), resolved_by=?
+            WHERE id=?
+        """, (status, resolved_by, req_id))
+        conn.commit()
+        return dict(row)
